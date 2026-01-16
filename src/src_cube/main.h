@@ -9,12 +9,10 @@ extern "C"
 #include "stm32f4xx_hal.h"
 #include "pca9685.h"
 #include "servo_control.h"
-#include "gestures.h"
-#include "emg_control.h"
 #include <stdbool.h>
 #include <math.h>
 
-    const uint16_t SAMPLES = 512; // SR = 400kHz
+    const uint16_t SAMPLES = 1; // SR = 400kHz
     const uint16_t ADC_CHANNELS = 3;
     extern volatile bool data_rdy_f;
     extern uint16_t adc_buffer[];

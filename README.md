@@ -1,2 +1,2 @@
 # prosthesis_2
-Forearm prothesis using Mioware Muscle Sensors
+Forearm prosthesis using 3 Mioware Muscle Sensors.
