@@ -9,17 +9,22 @@ extern "C"
 #include "stm32f4xx_hal.h"
 #include "pca9685.h"
 #include "servo_control.h"
+#include "common_defs.h"
 #include <stdbool.h>
 #include <math.h>
 
-    const uint16_t SAMPLES = 1; // SR = 400kHz
-    const uint16_t ADC_CHANNELS = 3;
-    extern volatile bool data_rdy_f;
-    extern uint16_t adc_buffer[];
+extern volatile bool data_rdy_f;
+extern volatile bool buffer_full;
+extern uint16_t adc_buffer[];
+extern uint32_t buffer_index;
 
-    void Error_Handler(void);
-    void TestServo(void);
-    void TestIndividualFingers(void);
+extern EMG_Sample sample_buffer[BUFFER_SAMPLES];
+extern volatile uint32_t sample_buffer_idx;
+
+// Function prototypes
+void Error_Handler(void);
+void TestServo(void);
+void TestIndividualFingers(void);
     
 #define DATA_Ready_Pin GPIO_PIN_2
 #define DATA_Ready_GPIO_Port GPIOE

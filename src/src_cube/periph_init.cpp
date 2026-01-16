@@ -7,6 +7,7 @@ DMA_HandleTypeDef hdma_adc1;
 DMA_HandleTypeDef hdma_tim2_ch2_ch4;
 TIM_HandleTypeDef htim2;
 I2C_HandleTypeDef hi2c1;
+TIM_HandleTypeDef htim3;
 
 void MX_I2C1_Init(void)
 {
@@ -144,13 +145,13 @@ void MX_ADC1_Init(void)
     ADC_ChannelConfTypeDef sConfig = { 0 };
 
     hadc1.Instance = ADC1;
-    hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV4; // ADC_CLOCK_SYNC_PCLK_DIV2;
+    hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV2; // ADC_CLOCK_SYNC_PCLK_DIV2;
     hadc1.Init.Resolution = ADC_RESOLUTION_12B;
     hadc1.Init.ScanConvMode = ENABLE;
-    hadc1.Init.ContinuousConvMode = ENABLE;
+    hadc1.Init.ContinuousConvMode = DISABLE;
     hadc1.Init.DiscontinuousConvMode = DISABLE;
-    hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
-    hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+    hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
+    hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIGCONV_T3_TRGO;
     hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
     hadc1.Init.NbrOfConversion = 3;
     hadc1.Init.DMAContinuousRequests = ENABLE;
@@ -164,7 +165,7 @@ void MX_ADC1_Init(void)
     // Configure 3 channels
     sConfig.Channel = ADC_CHANNEL_0; // PA0
     sConfig.Rank = 1;
-    sConfig.SamplingTime = ADC_SAMPLETIME_84CYCLES; // ADC_SAMPLETIME_3CYCLES;
+    sConfig.SamplingTime = ADC_SAMPLETIME_15CYCLES; // ADC_SAMPLETIME_84CYCLES;
     if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
         Error_Handler();
 
@@ -179,29 +180,19 @@ void MX_ADC1_Init(void)
         Error_Handler();
 }
 
-void HAL_ADC_MspInit(ADC_HandleTypeDef *adcHandle)
-{
-    GPIO_InitTypeDef GPIO_InitStruct = { 0 };
-    if (adcHandle->Instance == ADC1)
-    {
+void HAL_ADC_MspInit(ADC_HandleTypeDef* adcHandle) {
+    if (adcHandle->Instance == ADC1) {
         __HAL_RCC_ADC1_CLK_ENABLE();
         __HAL_RCC_GPIOA_CLK_ENABLE();
+        __HAL_RCC_TIM3_CLK_ENABLE();
 
-        /**ADC1 GPIO Configuration - 4 CHANNELS
-        PA0     ------> ADC1_IN0
-        PA1     ------> ADC1_IN1
-        PA2     ------> ADC1_IN2
-        PA3     ------> ADC1_IN3
-        */
-        GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3;
+        GPIO_InitTypeDef GPIO_InitStruct = {0};
+        GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2;
         GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
         GPIO_InitStruct.Pull = GPIO_NOPULL;
         HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-        // DMA controller clock enable and initialization
         __HAL_RCC_DMA2_CLK_ENABLE();
-
-        // NVIC configuration for DMA interrupt
         HAL_NVIC_SetPriority(DMA2_Stream0_IRQn, 0, 0);
         HAL_NVIC_EnableIRQ(DMA2_Stream0_IRQn);
     }
@@ -231,3 +222,37 @@ void MX_DMA_Init(void)
 }
 
 void MX_TIM2_Init(void) {}
+
+void MX_TIM3_Init(void) {
+    // Timer for 2000Hz ADC triggering
+    TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+    TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+    htim3.Instance = TIM3;
+    htim3.Init.Prescaler = 84 - 1;  // 84MHz/84 = 1MHz timer clock
+    htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
+    htim3.Init.Period = 500 - 1;    // 1MHz/500 = 2000Hz
+    htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+    htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+    
+    if (HAL_TIM_Base_Init(&htim3) != HAL_OK) {
+        Error_Handler();
+    }
+    
+    sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+    if (HAL_TIM_ConfigClockSource(&htim3, &sClockSourceConfig) != HAL_OK) {
+        Error_Handler();
+    }
+    
+    sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
+    sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+    if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK) {
+        Error_Handler();
+    }
+}
+
+void HAL_TIM_Base_MspInit(TIM_HandleTypeDef* htim_base) {
+    if (htim_base->Instance == TIM3) {
+        __HAL_RCC_TIM3_CLK_ENABLE();
+    }
+}
