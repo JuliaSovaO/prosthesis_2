@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <math.h>
 
+PCA9685_HandleTypeDef pca9685;
+
 // Individual servo angle setting with your optimized clamping
 void SetServo1Angle(uint8_t angle) {
     angle = CLAMP_ANGLE(angle, SERVO1_MIN, SERVO1_MAX);
