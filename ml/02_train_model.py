@@ -1,152 +1,133 @@
-# 02_quick_train.py
-import matplotlib.pyplot as plt
+# ml/02_train_regression.py
 import numpy as np
-import pandas as pd
-import seaborn as sns
-from sklearn.metrics import accuracy_score, confusion_matrix
-from sklearn.model_selection import train_test_split
-from sklearn.neural_network import MLPClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.svm import SVC
 from sklearn.preprocessing import StandardScaler
-
-# Load labeled data
-print("Loading labeled data...")
-data = np.load("emg_dataset.npz")
-emg = data["emg"]
-labels = data["labels"]
-fs = data["sampling_rate"]
-
-print(f"EMG shape: {emg.shape}")
-print(f"Labels: {np.unique(labels, return_counts=True)}")
-
-
-# ===== SIMPLE FEATURE EXTRACTION =====
-def extract_simple_features(signal, window_size=250, step_size=25):
-    """Extract 6 features per channel as in paper."""
-    window_samples = int(window_size * fs / 1000)  # 83 samples at 332Hz
-    step_samples = int(step_size * fs / 1000)  # 8 samples
-
-    features = []
-    for ch in range(3):  # For each channel
-        channel_signal = signal[:, ch]
-
-        channel_feats = []
-        for start in range(0, len(channel_signal) - window_samples, step_samples):
-            window = channel_signal[start : start + window_samples]
-
-            # 6 time-domain features
-            rms = np.sqrt(np.mean(window**2))
-            var = np.var(window)
-            mav = np.mean(np.abs(window))
-
-            # Simplified SSC and ZC
-            diffs = np.diff(window)
-            ssc = np.sum(diffs[:-1] * diffs[1:] < 0)
-            zc = np.sum(window[:-1] * window[1:] < 0)
-            wl = np.sum(np.abs(diffs))
-
-            channel_feats.append([rms, var, mav, ssc, zc, wl])
-
-        features.append(channel_feats)
-
-    # Combine channels: (n_windows, 18 features)
-    features = np.array(features)  # (3, n_windows, 6)
-    features = np.transpose(features, (1, 0, 2))  # (n_windows, 3, 6)
-    features = features.reshape(features.shape[0], -1)  # (n_windows, 18)
-
-    return features
-
-
-print("\nExtracting features...")
-X = extract_simple_features(emg)
-print(f"Features shape: {X.shape}")
-
-# Create labels for windows
-window_samples = int(250 * fs / 1000)  # 83 samples
-step_samples = int(25 * fs / 1000)  # 8 samples
-n_windows = X.shape[0]
-
-y = []
-for i in range(n_windows):
-    start = i * step_samples
-    window_labels = labels[start : start + window_samples]
-    if len(window_labels) > 0:
-        y.append(np.bincount(window_labels).argmax())
-    else:
-        y.append(0)
-y = np.array(y)
-
-print(f"Window labels shape: {y.shape}")
-
-# ===== TRAIN ANN (as in paper) =====
-# Normalize
-scaler = StandardScaler()
-X_scaled = scaler.fit_transform(X)
-
-# Split
-X_train, X_test, y_train, y_test = train_test_split(
-    X_scaled, y, test_size=0.2, random_state=42, stratify=y
-)
-
-print(f"\nTraining samples: {X_train.shape[0]}")
-print(f"Testing samples: {X_test.shape[0]}")
-
-# Train ANN
-print("\nTraining ANN...")
-ann = MLPClassifier(
-    hidden_layer_sizes=(300, 300, 300),
-    activation="relu",
-    solver="adam",
-    alpha=0.001,
-    max_iter=200,
-    random_state=42,
-    early_stopping=True,
-    validation_fraction=0.1,
-)
-
-ann.fit(X_train, y_train)
-
-# Evaluate
-y_pred = ann.predict(X_test)
-accuracy = accuracy_score(y_test, y_pred)
-
-print(f"\n=== RESULTS ===")
-print(f"Accuracy: {accuracy:.3f}")
-
-# Confusion matrix
-label_names = [
-    "Rest",
-    "Rock",
-    "Scissors",
-    "Paper",
-    "One",
-    "Three",
-    "Four",
-    "Good",
-    "Okay",
-    "Finger Gun",
-]
-
-plt.figure(figsize=(10, 8))
-cm = confusion_matrix(y_test, y_pred, normalize="true")
-sns.heatmap(
-    cm,
-    annot=True,
-    fmt=".2f",
-    cmap="Blues",
-    xticklabels=label_names[: len(np.unique(y))],
-    yticklabels=label_names[: len(np.unique(y))],
-)
-plt.title(f"ANN Confusion Matrix (Accuracy: {accuracy:.3f})")
-plt.tight_layout()
-plt.savefig("ann_results.png", dpi=150)
-plt.show()
-
-# Save model
+from sklearn.model_selection import train_test_split
 import joblib
+import warnings
+warnings.filterwarnings('ignore')
 
-joblib.dump(ann, "emg_gesture_ann.pkl")
-joblib.dump(scaler, "feature_scaler.pkl")
+def train_models():
+    # Load processed data
+    data = np.load('ml/emg_processed.npz')
+    X = data['features']
+    y = data['labels'].astype(int)
+    
+    # Remove any NaN or Inf values
+    mask = np.all(np.isfinite(X), axis=1)
+    X = X[mask]
+    y = y[mask]
+    
+    # Split data
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42, stratify=y
+    )
+    
+    # Scale features
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
+    
+    # Train different models
+    models = {
+        'logistic': LogisticRegression(
+            max_iter=1000, 
+            multi_class='ovr',
+            solver='liblinear',
+            C=0.1
+        ),
+        'random_forest': RandomForestClassifier(
+            n_estimators=50,
+            max_depth=10,
+            random_state=42
+        ),
+        'svm': SVC(
+            kernel='rbf',
+            C=1.0,
+            gamma='scale',
+            probability=True
+        )
+    }
+    
+    results = {}
+    for name, model in models.items():
+        model.fit(X_train_scaled, y_train)
+        train_acc = model.score(X_train_scaled, y_train)
+        test_acc = model.score(X_test_scaled, y_test)
+        
+        results[name] = {
+            'model': model,
+            'train_acc': train_acc,
+            'test_acc': test_acc
+        }
+        
+        print(f"{name}: Train Acc = {train_acc:.3f}, Test Acc = {test_acc:.3f}")
+    
+    # Select best model based on test accuracy
+    best_model_name = max(results, key=lambda x: results[x]['test_acc'])
+    best_model = results[best_model_name]['model']
+    
+    print(f"\nBest model: {best_model_name}")
+    print(f"Test accuracy: {results[best_model_name]['test_acc']:.3f}")
+    
+    # Save model and scaler
+    joblib.dump(best_model, 'ml/emg_best_model.pkl')
+    joblib.dump(scaler, 'ml/feature_scaler.pkl')
+    
+    # Extract model parameters for C implementation
+    extract_model_params(best_model, scaler, best_model_name)
+    
+    return best_model, scaler, best_model_name
 
-print(f"\nModel saved: emg_gesture_ann.pkl")
-print(f"Scaler saved: feature_scaler.pkl")
-print(f"\nReady for real-time deployment!")
+def extract_model_params(model, scaler, model_name):
+    """Extract model parameters for C implementation"""
+    
+    if model_name == 'logistic':
+        # For logistic regression
+        coef = model.coef_  # Shape: (n_classes, n_features)
+        intercept = model.intercept_
+        
+        # Save as C header file
+        with open('../src/src_cube/emg_model_params.h', 'w') as f:
+            f.write('#ifndef EMG_MODEL_PARAMS_H\n')
+            f.write('#define EMG_MODEL_PARAMS_H\n\n')
+            
+            f.write(f'#define N_CLASSES {coef.shape[0]}\n')
+            f.write(f'#define N_FEATURES {coef.shape[1]}\n\n')
+            
+            # Coefficients
+            f.write('static const float COEFF[N_CLASSES][N_FEATURES] = {\n')
+            for i in range(coef.shape[0]):
+                f.write('    {')
+                f.write(', '.join([f'{val:.6f}f' for val in coef[i]]))
+                f.write('},\n')
+            f.write('};\n\n')
+            
+            # Intercepts
+            f.write('static const float INTERCEPT[N_CLASSES] = {\n')
+            f.write('    ' + ', '.join([f'{val:.6f}f' for val in intercept]))
+            f.write('\n};\n\n')
+            
+            # Scaler mean and std
+            mean = scaler.mean_
+            std = np.sqrt(scaler.var_)
+            
+            f.write('static const float SCALER_MEAN[N_FEATURES] = {\n')
+            f.write('    ' + ', '.join([f'{val:.6f}f' for val in mean]))
+            f.write('\n};\n\n')
+            
+            f.write('static const float SCALER_STD[N_FEATURES] = {\n')
+            f.write('    ' + ', '.join([f'{val:.6f}f' for val in std]))
+            f.write('\n};\n\n')
+            
+            f.write('#endif // EMG_MODEL_PARAMS_H\n')
+            
+    elif model_name == 'random_forest':
+        # Simplified implementation - save tree structure
+        # Note: This is complex; consider using a simpler model
+        pass
+
+if __name__ == "__main__":
+    train_models()

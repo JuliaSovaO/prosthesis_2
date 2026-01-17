@@ -84,40 +84,6 @@ void data_collection_stop(void) {
     collection_mode = MODE_IDLE;
 }
 
-void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) {
-    if (hadc->Instance == ADC1 && collection_mode == MODE_COLLECTING) {
-        // Simulated ADC values for testing
-        uint16_t ch1 = 1000 + (rand() % 1000);
-        uint16_t ch2 = 1000 + (rand() % 1000);
-        uint16_t ch3 = 1000 + (rand() % 1000);
-        
-        // Calculate timestamp
-        uint32_t current_time = HAL_GetTick();
-        uint32_t timestamp = (current_time - start_timestamp) * 1000;
-        
-        // Store in circular buffer
-        uint32_t idx = sample_buffer_idx % BUFFER_SAMPLES;
-        sample_buffer[idx].ch1 = ch1;
-        sample_buffer[idx].ch2 = ch2;
-        sample_buffer[idx].ch3 = ch3;
-        sample_buffer[idx].timestamp = timestamp;
-        sample_buffer[idx].gesture_id = current_gesture;
-        
-        sample_buffer_idx++;
-        sample_count++;
-        
-        // Check if we've collected enough samples
-        if (sample_count >= SAMPLES_PER_TRIAL) {
-            data_collection_stop();
-        }
-        
-        // Throttle output
-        if (sample_count % 100 == 0) {
-            printf("Collected: %lu/%d samples\r", sample_count, SAMPLES_PER_TRIAL);
-        }
-    }
-}
-
 void export_data_to_serial(uint8_t gesture_id) {
     printf("\n=== Exporting data for %s ===\n", GESTURE_NAMES[gesture_id]);
     printf("Trial: %lu/%d\n", trial_count + 1, TRIALS_PER_GESTURE);

@@ -1,41 +1,24 @@
-// data_collection.h - HEADER ONLY
-#ifndef DATA_COLLECTION_H
-#define DATA_COLLECTION_H
+// src/src_cube/emg_classifier.h
+#ifndef EMG_CLASSIFIER_H
+#define EMG_CLASSIFIER_H
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-#include "common_defs.h"
-#include <stdio.h>
 #include <stdint.h>
-#include <stdbool.h>
+#include <math.h>
 
-// Data collection modes
-typedef enum {
-    MODE_IDLE = 0,
-    MODE_COLLECTING,
-    MODE_PROCESSING,
-    MODE_COMPLETE
-} CollectionMode;
+#define N_FEATURES 18
+#define N_CLASSES 10
+#define WINDOW_SIZE 375  // 250ms at 1500Hz
 
-// Data collection functions
-void data_collection_init(void);
-void data_collection_start(uint8_t gesture_id);
-void data_collection_stop(void);
-void data_collection_process(void);
-void data_collection_main(void);
+typedef struct {
+    float buffer[3][WINDOW_SIZE];
+    uint32_t idx;
+    uint32_t sample_count;
+} EMG_Buffer;
 
-// Data export
-void export_data_to_serial(uint8_t gesture_id);
-void export_data_summary(void);
+void init_emg_buffer(EMG_Buffer* buf);
+void add_sample(EMG_Buffer* buf, uint16_t ch1, uint16_t ch2, uint16_t ch3);
+int extract_features(EMG_Buffer* buf, float* features);
+int classify_gesture(const float* features);
+void scale_features(float* features);
 
-// Buffer management
-uint32_t get_available_samples(void);
-uint32_t get_sample_rate(void);
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif // DATA_COLLECTION_H
+#endif // EMG_CLASSIFIER_H
