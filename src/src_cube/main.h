@@ -10,22 +10,18 @@ extern "C"
 #include "pca9685.h"
 #include "servo_control.h"
 #include "common_defs.h"
+#include "emg_classifier.h"
 #include <stdbool.h>
 #include <math.h>
 
-extern volatile bool data_rdy_f;
-extern volatile bool buffer_full;
-extern uint16_t adc_buffer[];
-extern uint32_t buffer_index;
-
-extern EMG_Sample sample_buffer[BUFFER_SAMPLES];
-extern volatile uint32_t sample_buffer_idx;
-
 // Function prototypes
 void Error_Handler(void);
-void TestServo(void);
-void TestIndividualFingers(void);
-    
+bool init_servos(void);
+
+// EMG buffer declaration
+extern EMG_Buffer emg_buffer;  // From emg_classifier.c
+
+// Pin definitions (from your original file)
 #define DATA_Ready_Pin GPIO_PIN_2
 #define DATA_Ready_GPIO_Port GPIOE
 #define CS_I2C_SPI_Pin GPIO_PIN_3
