@@ -145,7 +145,7 @@ void MX_ADC1_Init(void)
     ADC_ChannelConfTypeDef sConfig = { 0 };
 
     hadc1.Instance = ADC1;
-    hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV2; // ADC_CLOCK_SYNC_PCLK_DIV2;
+    hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV2;
     hadc1.Init.Resolution = ADC_RESOLUTION_12B;
     hadc1.Init.ScanConvMode = ENABLE;
     hadc1.Init.ContinuousConvMode = DISABLE;
@@ -153,7 +153,7 @@ void MX_ADC1_Init(void)
     hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
     hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIGCONV_T3_TRGO;
     hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
-    hadc1.Init.NbrOfConversion = 3;
+    hadc1.Init.NbrOfConversion = 4;  // Changed from 3 to 4
     hadc1.Init.DMAContinuousRequests = ENABLE;
     hadc1.Init.EOCSelection = ADC_EOC_SEQ_CONV;
 
@@ -162,10 +162,10 @@ void MX_ADC1_Init(void)
         Error_Handler();
     }
 
-    // Configure 3 channels
+    // Configure 4 channels
     sConfig.Channel = ADC_CHANNEL_0; // PA0
     sConfig.Rank = 1;
-    sConfig.SamplingTime = ADC_SAMPLETIME_15CYCLES; // ADC_SAMPLETIME_84CYCLES;
+    sConfig.SamplingTime = ADC_SAMPLETIME_15CYCLES;
     if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
         Error_Handler();
 
@@ -178,6 +178,11 @@ void MX_ADC1_Init(void)
     sConfig.Rank = 3;
     if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
         Error_Handler();
+
+    sConfig.Channel = ADC_CHANNEL_3; // PA3 - NEW 4th channel
+    sConfig.Rank = 4;
+    if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+        Error_Handler();
 }
 
 void HAL_ADC_MspInit(ADC_HandleTypeDef* adcHandle) {
@@ -187,7 +192,7 @@ void HAL_ADC_MspInit(ADC_HandleTypeDef* adcHandle) {
         __HAL_RCC_TIM3_CLK_ENABLE();
 
         GPIO_InitTypeDef GPIO_InitStruct = {0};
-        GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2;
+        GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3; // Added PA3
         GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
         GPIO_InitStruct.Pull = GPIO_NOPULL;
         HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);

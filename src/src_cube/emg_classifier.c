@@ -13,13 +13,13 @@ void init_emg_buffer(EMG_Buffer* buf) {
     buf->idx = 0;
 }
 
-void add_emg_sample(EMG_Buffer* buf, uint16_t ch1, uint16_t ch2, uint16_t ch3) {
+void add_emg_sample(EMG_Buffer* buf, uint16_t ch1, uint16_t ch2, uint16_t ch3, uint16_t ch4) {
     if (buf == NULL) return;
     
-    // Store normalized values (0-1)
     buf->buffer[0][buf->idx] = (float)ch1 / 4095.0f;
     buf->buffer[1][buf->idx] = (float)ch2 / 4095.0f;
     buf->buffer[2][buf->idx] = (float)ch3 / 4095.0f;
+    buf->buffer[3][buf->idx] = (float)ch4 / 4095.0f;
     
     buf->idx = (buf->idx + 1) % WINDOW_SIZE;
     if (buf->sample_count < WINDOW_SIZE) {
@@ -61,16 +61,12 @@ int classify_current_gesture(void) {
         return GESTURE_REST;
     }
     
-    // Calculate RMS for each channel (only features we actually use)
+    // Calculate RMS for each channel (4 channels now)
     features[0] = calculate_simple_rms(emg_buffer.buffer[0], WINDOW_SIZE);  // ch1 RMS
     features[6] = calculate_simple_rms(emg_buffer.buffer[1], WINDOW_SIZE);  // ch2 RMS
     features[12] = calculate_simple_rms(emg_buffer.buffer[2], WINDOW_SIZE); // ch3 RMS
+    features[18] = calculate_simple_rms(emg_buffer.buffer[3], WINDOW_SIZE); // ch4 RMS (NEW)
     
-    // Fill other features with zeros (not used in current classifier)
-    // features[5] = features[0] * features[0];   // ch1 Energy
-    // features[11] = features[6] * features[6];  // ch2 Energy
-    // features[17] = features[12] * features[12]; // ch3 Energy
-    
-    // Get prediction
+    // Get prediction (model needs to be updated for 4 channels)
     return predict_gesture(features);
 }
