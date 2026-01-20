@@ -1,8 +1,31 @@
 #include "servo_control.h"
 #include <stdio.h>
 #include <math.h>
+#include "main.h" 
 
+extern I2C_HandleTypeDef hi2c1;
 PCA9685_HandleTypeDef pca9685;
+
+void InitAllServos(void) {
+    printf("Initializing PCA9685...\r\n");
+    
+    // Initialize PCA9685 with 50Hz frequency
+    if (!PCA9685_Init(&pca9685, &hi2c1, PCA9685_I2C_ADDRESS, 50.0f)) {
+        printf("PCA9685 initialization failed!\r\n");
+        return;
+    }
+    
+    printf("PCA9685 initialized successfully\r\n");
+    
+    SetServo1Angle(20);
+    SetServo2Angle(20);
+    SetServo3Angle(20);
+    SetServo4Angle(20);
+    SetServo5Angle(20);
+    
+    HAL_Delay(1000);
+    printf("Servos initialized to rest position\r\n");
+}
 
 // Individual servo angle setting with your optimized clamping
 void SetServo1Angle(uint8_t angle) {

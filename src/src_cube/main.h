@@ -11,17 +11,21 @@ extern "C"
 #include "servo_control.h"
 #include "common_defs.h"
 #include "emg_classifier.h"
+#include "gesture.h"
 #include <stdbool.h>
 #include <math.h>
 
-// Function prototypes
+extern I2C_HandleTypeDef hi2c1;
+extern UART_HandleTypeDef huart1;
+extern ADC_HandleTypeDef hadc1;
+extern DMA_HandleTypeDef hdma_adc1;
+extern TIM_HandleTypeDef htim3;
+
 void Error_Handler(void);
-bool init_servos(void);
+void InitAllServos(void); 
 
-// EMG buffer declaration
-extern EMG_Buffer emg_buffer;  // From emg_classifier.c
+extern EMG_Buffer emg_buffer; 
 
-// Pin definitions (from your original file)
 #define DATA_Ready_Pin GPIO_PIN_2
 #define DATA_Ready_GPIO_Port GPIOE
 #define CS_I2C_SPI_Pin GPIO_PIN_3

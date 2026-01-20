@@ -2,52 +2,37 @@
 #define EMG_MODEL_H
 
 #include <stdint.h>
-#include <math.h>
 
-#define N_FEATURES 24  // 4 channels × 6 features
-#define N_GESTURES 10
+typedef enum {
+    GESTURE_ROCK = 0,           // all closed
+    GESTURE_SCISSORS = 1,       // index, middle opened, others closed
+    GESTURE_PAPER = 2,          // all opened
+    GESTURE_FUCK = 3,           // middle finger opened, others closed
+    GESTURE_THREE = 4,          // index, middle, ring opened, others closed
+    GESTURE_FOUR = 5,           // only thumb closed
+    GESTURE_GOOD = 6,           // only thumb opened
+    GESTURE_OKAY = 7,           // index and thumb make circle, others opened
+    GESTURE_FINGER_GUN = 8,     // index, thumb opened, others closed
+    GESTURE_REST = 9            // relaxed
+} GestureType;
 
-#define GESTURE_REST 0
-#define GESTURE_ROCK 1
-#define GESTURE_SCISSORS 2
-#define GESTURE_PAPER 3
-#define GESTURE_FUCK 4     
-#define GESTURE_THREE 5
-#define GESTURE_FOUR 6
-#define GESTURE_GOOD 7
-#define GESTURE_OKAY 8
-#define GESTURE_FINGER_GUN 9
-#define GESTURE_ONE GESTURE_FUCK
+#define NUM_FEATURES 20
+#define NUM_CLASSES 10
 
-// TEMPORARY: Simple classifier for 4 channels
-static inline uint8_t predict_gesture(const float* features) {
-    // For now, use only first 3 channels as before
-    // TODO: Update with 4-channel logic when you have data
-    
-    float ch1_rms = features[0];
-    float ch2_rms = features[6];
-    float ch3_rms = features[12];
-    // float ch4_rms = features[18];  // Comment out unused variable
-    
-    // For now, use the same logic as 3 channels
-    float ratio_ch2_ch1 = (ch1_rms > 0.001f) ? ch2_rms / ch1_rms : 100.0f;
-    
-    // SCISSORS: Very low ch3
-    if (ch3_rms < 0.005f) {
-        return GESTURE_SCISSORS;
-    }
-    
-    // PAPER: Very low ch2
-    if (ch2_rms < 0.007f) {
-        return GESTURE_PAPER;
-    }
-    
-    // GOOD: Extreme ratio
-    if (ratio_ch2_ch1 > 15.0f) {
-        return GESTURE_GOOD;
-    }
-    
-    return GESTURE_REST;
-}
+// Channel mapping:
+// ch1: flexor carpi radialis (a0)
+// ch2: brachioradialis (a1)
+// ch3: flexor carpi ulnaris (a2)
+// ch4: flexor digitorum superficialis (a3)
+
+extern const float scaler_mean[NUM_FEATURES];
+extern const float scaler_scale[NUM_FEATURES];
+
+extern const float lr_coefficients[NUM_CLASSES][NUM_FEATURES];
+extern const float lr_intercept[NUM_CLASSES];
+
+extern const char* gesture_names[NUM_CLASSES];
+
+GestureType predict_gesture(const float* features);
 
 #endif // EMG_MODEL_H

@@ -1,26 +1,32 @@
 #ifndef EMG_CLASSIFIER_H
 #define EMG_CLASSIFIER_H
 
+#include "common_defs.h"
+#include "emg_model.h"
 #include <stdint.h>
+#include <stdbool.h>
 #include <math.h>
 
-// Configuration - 4 channels now
-#define N_CHANNELS 4
-#define N_FEATURES 24  // 4 channels × 6 features
-#define WINDOW_SIZE 200  // 200 samples at 1000Hz = 200ms window
+#define WINDOW_SIZE 150  // 150 samples at 1000Hz = 150ms
+#define OVERLAP 100      // 100 samples overlap
+#define STEP_SIZE (WINDOW_SIZE - OVERLAP)  // 50 samples step
 
+#define NUM_CHANNELS 4
+#define FEATURES_PER_CHANNEL 5
+#define TOTAL_FEATURES (NUM_CHANNELS * FEATURES_PER_CHANNEL)
+
+// EMG buffer structure
 typedef struct {
-    float buffer[4][WINDOW_SIZE];  // 4 channels now
-    uint32_t idx;
-    uint32_t sample_count;
+    int16_t data[WINDOW_SIZE][NUM_CHANNELS];
+    uint16_t write_index;
+    bool is_full;
 } EMG_Buffer;
 
-// Declare the global buffer
-extern EMG_Buffer emg_buffer;
-
 // Function prototypes
-void init_emg_buffer(EMG_Buffer* buf);
-void add_emg_sample(EMG_Buffer* buf, uint16_t ch1, uint16_t ch2, uint16_t ch3, uint16_t ch4);
-int classify_current_gesture(void);
+void emg_buffer_init(EMG_Buffer* buffer);
+void emg_buffer_add_sample(EMG_Buffer* buffer, int16_t ch1, int16_t ch2, int16_t ch3, int16_t ch4);
+bool emg_buffer_process_window(EMG_Buffer* buffer, float* features);
+GestureType classify_gesture(const float* features);
+void extract_features_from_window(const int16_t window[WINDOW_SIZE][NUM_CHANNELS], float* features);
 
 #endif // EMG_CLASSIFIER_H

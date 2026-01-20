@@ -45,6 +45,7 @@ extern "C" {
 #define CLAMP_ANGLE(angle, min, max) \
     ((angle) < (min) ? (min) : ((angle) > (max) ? (max) : (angle)))
 
+void InitAllServos(void);
 void SetServo1Angle(uint8_t angle);
 void SetServo2Angle(uint8_t angle);
 void SetServo3Angle(uint8_t angle);

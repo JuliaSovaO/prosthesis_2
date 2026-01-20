@@ -1,72 +1,105 @@
 #include "emg_classifier.h"
 #include "emg_model.h"
-#include <string.h>
-#include <math.h>
 
-EMG_Buffer emg_buffer;
-
-void init_emg_buffer(EMG_Buffer* buf) {
-    if (buf == NULL) return;
-    
-    memset(buf, 0, sizeof(EMG_Buffer));
-    buf->sample_count = 0;
-    buf->idx = 0;
-}
-
-void add_emg_sample(EMG_Buffer* buf, uint16_t ch1, uint16_t ch2, uint16_t ch3, uint16_t ch4) {
-    if (buf == NULL) return;
-    
-    buf->buffer[0][buf->idx] = (float)ch1 / 4095.0f;
-    buf->buffer[1][buf->idx] = (float)ch2 / 4095.0f;
-    buf->buffer[2][buf->idx] = (float)ch3 / 4095.0f;
-    buf->buffer[3][buf->idx] = (float)ch4 / 4095.0f;
-    
-    buf->idx = (buf->idx + 1) % WINDOW_SIZE;
-    if (buf->sample_count < WINDOW_SIZE) {
-        buf->sample_count++;
+// Initialize EMG buffer
+void emg_buffer_init(EMG_Buffer* buffer) {
+    buffer->write_index = 0;
+    buffer->is_full = false;
+    for (int i = 0; i < WINDOW_SIZE; i++) {
+        for (int ch = 0; ch < NUM_CHANNELS; ch++) {
+            buffer->data[i][ch] = 0;
+        }
     }
 }
 
-// Simple moving average for DC offset
-static float calculate_moving_average(const float* data, int n) {
-    if (n <= 0) return 0.0f;
+// Add a new sample to the buffer
+void emg_buffer_add_sample(EMG_Buffer* buffer, int16_t ch1, int16_t ch2, int16_t ch3, int16_t ch4) {
+    buffer->data[buffer->write_index][0] = ch1;
+    buffer->data[buffer->write_index][1] = ch2;
+    buffer->data[buffer->write_index][2] = ch3;
+    buffer->data[buffer->write_index][3] = ch4;
     
-    float sum = 0.0f;
-    for (int i = 0; i < n; i++) {
-        sum += data[i];
+    buffer->write_index++;
+    if (buffer->write_index >= WINDOW_SIZE) {
+        buffer->write_index = 0;
+        buffer->is_full = true;
     }
-    return sum / n;
 }
 
-// Simple RMS calculation
-static float calculate_simple_rms(const float* data, int n) {
-    if (n <= 0) return 0.0f;
-    
-    float dc_offset = calculate_moving_average(data, n);
-    float sum_squares = 0.0f;
-    
-    for (int i = 0; i < n; i++) {
-        float val = data[i] - dc_offset;
-        sum_squares += val * val;
+// Extract features from window (optimized for STM32)
+void extract_features_from_window(const int16_t window[WINDOW_SIZE][NUM_CHANNELS], float* features) {
+    for (int ch = 0; ch < NUM_CHANNELS; ch++) {
+        float sum_abs = 0;
+        float sum_sqr = 0;
+        float sum = 0;
+        float sum_diff = 0;
+        int zero_crossings = 0;
+        
+        // Calculate basic statistics
+        for (int i = 0; i < WINDOW_SIZE; i++) {
+            float val = window[i][ch];
+            sum_abs += fabsf(val);
+            sum_sqr += val * val;
+            sum += val;
+            
+            if (i > 0) {
+                float diff = val - window[i-1][ch];
+                sum_diff += fabsf(diff);
+                
+                // Zero crossing detection
+                if ((val >= 0 && window[i-1][ch] < 0) || (val < 0 && window[i-1][ch] >= 0)) {
+                    zero_crossings++;
+                }
+            }
+        }
+        
+        // Feature 1: Mean Absolute Value (MAV)
+        features[ch * FEATURES_PER_CHANNEL + 0] = sum_abs / WINDOW_SIZE;
+        
+        // Feature 2: Root Mean Square (RMS)
+        features[ch * FEATURES_PER_CHANNEL + 1] = sqrtf(sum_sqr / WINDOW_SIZE);
+        
+        // Feature 3: Variance
+        float mean = sum / WINDOW_SIZE;
+        float variance = 0;
+        for (int i = 0; i < WINDOW_SIZE; i++) {
+            float diff = window[i][ch] - mean;
+            variance += diff * diff;
+        }
+        features[ch * FEATURES_PER_CHANNEL + 2] = variance / WINDOW_SIZE;
+        
+        // Feature 4: Waveform Length (WL)
+        features[ch * FEATURES_PER_CHANNEL + 3] = sum_diff;
+        
+        // Feature 5: Zero Crossing (ZC)
+        features[ch * FEATURES_PER_CHANNEL + 4] = zero_crossings;
     }
-    
-    return sqrtf(sum_squares / n);
 }
 
-int classify_current_gesture(void) {
-    float features[N_FEATURES] = {0};
-    
-    // Check if we have enough data
-    if (emg_buffer.sample_count < WINDOW_SIZE) {
-        return GESTURE_REST;
+// Process a window and extract features if available
+bool emg_buffer_process_window(EMG_Buffer* buffer, float* features) {
+    if (!buffer->is_full) {
+        return false;
     }
     
-    // Calculate RMS for each channel (4 channels now)
-    features[0] = calculate_simple_rms(emg_buffer.buffer[0], WINDOW_SIZE);  // ch1 RMS
-    features[6] = calculate_simple_rms(emg_buffer.buffer[1], WINDOW_SIZE);  // ch2 RMS
-    features[12] = calculate_simple_rms(emg_buffer.buffer[2], WINDOW_SIZE); // ch3 RMS
-    features[18] = calculate_simple_rms(emg_buffer.buffer[3], WINDOW_SIZE); // ch4 RMS (NEW)
+    // Create a window starting from the oldest data
+    int16_t window[WINDOW_SIZE][NUM_CHANNELS];
+    uint16_t start_idx = buffer->write_index;  // Oldest data
     
-    // Get prediction (model needs to be updated for 4 channels)
+    for (int i = 0; i < WINDOW_SIZE; i++) {
+        uint16_t idx = (start_idx + i) % WINDOW_SIZE;
+        for (int ch = 0; ch < NUM_CHANNELS; ch++) {
+            window[i][ch] = buffer->data[idx][ch];
+        }
+    }
+    
+    // Extract features
+    extract_features_from_window(window, features);
+    
+    return true;
+}
+
+// Classify gesture using logistic regression model
+GestureType classify_gesture(const float* features) {
     return predict_gesture(features);
 }
