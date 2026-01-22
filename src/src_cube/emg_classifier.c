@@ -53,11 +53,15 @@ void extract_features_from_window(const int16_t window[WINDOW_SIZE][NUM_CHANNELS
             }
         }
         
+        // IMPORTANT: Feature order MUST match Python training
+        // Python order: [mav, rms, var, wl, zc] for each channel
+        int base_idx = ch * FEATURES_PER_CHANNEL;
+        
         // Feature 1: Mean Absolute Value (MAV)
-        features[ch * FEATURES_PER_CHANNEL + 0] = sum_abs / WINDOW_SIZE;
+        features[base_idx + 0] = sum_abs / WINDOW_SIZE;
         
         // Feature 2: Root Mean Square (RMS)
-        features[ch * FEATURES_PER_CHANNEL + 1] = sqrtf(sum_sqr / WINDOW_SIZE);
+        features[base_idx + 1] = sqrtf(sum_sqr / WINDOW_SIZE);
         
         // Feature 3: Variance
         float mean = sum / WINDOW_SIZE;
@@ -66,14 +70,24 @@ void extract_features_from_window(const int16_t window[WINDOW_SIZE][NUM_CHANNELS
             float diff = window[i][ch] - mean;
             variance += diff * diff;
         }
-        features[ch * FEATURES_PER_CHANNEL + 2] = variance / WINDOW_SIZE;
+        features[base_idx + 2] = variance / WINDOW_SIZE;
         
         // Feature 4: Waveform Length (WL)
-        features[ch * FEATURES_PER_CHANNEL + 3] = sum_diff;
+        features[base_idx + 3] = sum_diff;
         
         // Feature 5: Zero Crossing (ZC)
-        features[ch * FEATURES_PER_CHANNEL + 4] = zero_crossings;
+        features[base_idx + 4] = zero_crossings;
     }
+}
+
+// Classify gesture using logistic regression model
+GestureType classify_gesture(const float* features) {
+    // Verify feature count
+    if (TOTAL_FEATURES != NUM_FEATURES) {
+        // Debug error
+        return GESTURE_REST;
+    }
+    return predict_gesture(features);
 }
 
 // Process a window and extract features if available
@@ -97,9 +111,4 @@ bool emg_buffer_process_window(EMG_Buffer* buffer, float* features) {
     extract_features_from_window(window, features);
     
     return true;
-}
-
-// Classify gesture using logistic regression model
-GestureType classify_gesture(const float* features) {
-    return predict_gesture(features);
 }

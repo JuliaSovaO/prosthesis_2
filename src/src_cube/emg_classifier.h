@@ -1,3 +1,4 @@
+// emg_classifier.h
 #ifndef EMG_CLASSIFIER_H
 #define EMG_CLASSIFIER_H
 
@@ -13,7 +14,12 @@
 
 #define NUM_CHANNELS 4
 #define FEATURES_PER_CHANNEL 5
-#define TOTAL_FEATURES (NUM_CHANNELS * FEATURES_PER_CHANNEL)
+#define TOTAL_FEATURES NUM_FEATURES  // Use from emg_model.h
+
+// IMPORTANT: Verify TOTAL_FEATURES equals NUM_CHANNELS × FEATURES_PER_CHANNEL
+#if TOTAL_FEATURES != (NUM_CHANNELS * FEATURES_PER_CHANNEL)
+#error "Feature count mismatch! Check emg_model.h"
+#endif
 
 // EMG buffer structure
 typedef struct {
