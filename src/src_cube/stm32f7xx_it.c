@@ -46,8 +46,7 @@ void SysTick_Handler(void)
     HAL_IncTick();
 }
 
-/* DMA Interrupts - only defined here, not in main.cpp */
-void DMA2_Stream0_IRQHandler(void)
+void DMA2_Stream2_IRQHandler(void)
 {
     HAL_DMA_IRQHandler(&hdma_adc2);
 }

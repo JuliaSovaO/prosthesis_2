@@ -48,8 +48,8 @@ int main(void)
 
     printf("\r\n\n");
     printf("========================================\r\n");
-    printf("=== 4-CHANNEL EMG PROSTHESIS CONTROL ===\r\n");
-    printf("=== STM32F723E-DISCOVERY            ===\r\n");
+    printf("    4-CHANNEL EMG PROSTHESIS CONTROL\r\n");
+    printf("    STM32F723E-DISCOVERY\r\n");
     printf("========================================\r\n");
     printf("Sample Rate: ~31,250 sets/sec\r\n\r\n");
     EMG_Control_Init();
@@ -85,6 +85,8 @@ int main(void)
     {
         Error_Handler();
     }
+    // Start conversion
+    HAL_ADC_Start(&hadc2);
 
     uint32_t last_print = 0;
 

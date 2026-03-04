@@ -1,10 +1,10 @@
 # prosthesis_2
 Forearm prosthesis using 4 Mioware Muscle Sensors.
 
-ﬂexor carpi radialis а0
-brachioradialis а1
-ﬂexor carpi ulnaris а2
-flexor digitorum superficialis а3
+- ﬂexor carpi radialis а0
+- brachioradialis а1
+- ﬂexor carpi ulnaris а2
+- flexor digitorum superficialis а3
 
     'rock': 0,           # all closed
     'scissors': 1,       # index, middle opened, others closed

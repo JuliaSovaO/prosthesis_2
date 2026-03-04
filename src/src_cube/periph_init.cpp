@@ -151,7 +151,7 @@ void MX_ADC2_Init(void)
     hadc2.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV4;
     hadc2.Init.Resolution = ADC_RESOLUTION_12B;
     hadc2.Init.ScanConvMode = ENABLE;
-    hadc2.Init.ContinuousConvMode = ENABLE;
+    hadc2.Init.ContinuousConvMode = ENABLE;  // Continuous mode
     hadc2.Init.DiscontinuousConvMode = DISABLE;
     hadc2.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
     hadc2.Init.ExternalTrigConv = ADC_SOFTWARE_START;
@@ -165,11 +165,13 @@ void MX_ADC2_Init(void)
         Error_Handler();
     }
 
+    // Configure channels with proper sampling time
+    sConfig.SamplingTime = ADC_SAMPLETIME_56CYCLES;  // Increase from 3 cycles for reliability
+    sConfig.Offset = 0;
+    
     // Channel 1: PC0 - ADC2_IN10
     sConfig.Channel = ADC_CHANNEL_10;
     sConfig.Rank = 1;
-    sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES;
-    sConfig.Offset = 0;
     if (HAL_ADC_ConfigChannel(&hadc2, &sConfig) != HAL_OK)
         Error_Handler();
 
@@ -192,29 +194,33 @@ void MX_ADC2_Init(void)
         Error_Handler();
 }
 
-void HAL_ADC_MspInit(ADC_HandleTypeDef *adcHandle)
+void HAL_ADC_MspInit(ADC_HandleTypeDef* adcHandle)
 {
     GPIO_InitTypeDef GPIO_InitStruct = {0};
     
-    if (adcHandle->Instance == ADC2)
+    if(adcHandle->Instance == ADC2)
     {
+        // Enable ADC2 clock
         __HAL_RCC_ADC2_CLK_ENABLE();
+        
+        // Enable GPIO clocks
         __HAL_RCC_GPIOA_CLK_ENABLE();
         __HAL_RCC_GPIOC_CLK_ENABLE();
 
-        // Configure PC0, PC1, PC4 as analog
+        // Configure PC0, PC1, PC4 as analog inputs
         GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_4;
         GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
         GPIO_InitStruct.Pull = GPIO_NOPULL;
         HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-        // Configure PA4 as analog
+        // Configure PA4 as analog input
         GPIO_InitStruct.Pin = GPIO_PIN_4;
         HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-        __HAL_RCC_DMA2_CLK_ENABLE();
-        HAL_NVIC_SetPriority(DMA2_Stream0_IRQn, 0, 0);
-        HAL_NVIC_EnableIRQ(DMA2_Stream0_IRQn);
+        // DMA clock is already enabled in MX_DMA_Init
+        // Just set the NVIC for the correct stream
+        HAL_NVIC_SetPriority(DMA2_Stream2_IRQn, 0, 0);
+        HAL_NVIC_EnableIRQ(DMA2_Stream2_IRQn);
     }
 }
 
@@ -222,7 +228,8 @@ void MX_DMA_Init(void)
 {
     __HAL_RCC_DMA2_CLK_ENABLE();
 
-    hdma_adc2.Instance = DMA2_Stream0;
+    // IMPORTANT: For ADC2 on STM32F723, use DMA2 Stream2 with Channel 1
+    hdma_adc2.Instance = DMA2_Stream2;
     hdma_adc2.Init.Channel = DMA_CHANNEL_1;
     hdma_adc2.Init.Direction = DMA_PERIPH_TO_MEMORY;
     hdma_adc2.Init.PeriphInc = DMA_PINC_DISABLE;
@@ -239,4 +246,8 @@ void MX_DMA_Init(void)
     }
 
     __HAL_LINKDMA(&hadc2, DMA_Handle, hdma_adc2);
+    
+    // Configure NVIC for DMA2 Stream2
+    HAL_NVIC_SetPriority(DMA2_Stream2_IRQn, 0, 0);
+    HAL_NVIC_EnableIRQ(DMA2_Stream2_IRQn);
 }
