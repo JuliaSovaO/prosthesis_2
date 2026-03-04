@@ -166,7 +166,7 @@ void MX_ADC2_Init(void)
     }
 
     // Configure channels with proper sampling time
-    sConfig.SamplingTime = ADC_SAMPLETIME_56CYCLES;  // Increase from 3 cycles for reliability
+    sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES;
     sConfig.Offset = 0;
     
     // Channel 1: PC0 - ADC2_IN10

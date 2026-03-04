@@ -1,152 +1,126 @@
 #include "main.h"
-#include "pca9685.h"
 #include "periph_init.h"
-#include "stm32f7xx_hal.h"
-#include "servo_control.h"
-#include "gestures.h"
-#include "emg_control.h"
+#include <string.h>
 #include <stdio.h>
 
-// const uint16_t SAMPLES = 512;
-// const uint16_t ADC_CHANNELS = 4;
+#define BUF_SIZE 8  // 2 complete samples for 4 channels (4*2)
 
-volatile bool data_rdy_f = false;
-__attribute__((aligned(4))) uint16_t adc_buffer[ADC_CHANNELS * SAMPLES] = {0};
-PCA9685_HandleTypeDef pca9685;
+__attribute__((aligned(4))) uint16_t adc_buffer[BUF_SIZE] = {0};
 
+extern ADC_HandleTypeDef hadc2;
+extern DMA_HandleTypeDef hdma_adc2;
 extern UART_HandleTypeDef huart6;
 
-int main(void)
-{
-    HAL_Init();
-
-    // PA5 blue LED
-    __HAL_RCC_GPIOA_CLK_ENABLE();
-    GPIO_InitTypeDef GPIO_InitStruct = {0};
-    GPIO_InitStruct.Pin = GPIO_PIN_5;
-    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-    GPIO_InitStruct.Pull = GPIO_NOPULL;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+// 4*4 digits + 3 commas + newline = 20 bytes
+void fast_output(uint16_t ch1, uint16_t ch2, uint16_t ch3, uint16_t ch4) {
+    static uint8_t buf[] = "0000,0000,0000,0000\n";
     
-    // blink LED 5 times rapidly
-    for(int i = 0; i < 5; i++) {
-        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET); // LED on
-        HAL_Delay(200);
-        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);   // LED off
-        HAL_Delay(200);
-    }
+    // Channel 1
+    buf[0] = '0' + (ch1 / 1000);
+    buf[1] = '0' + ((ch1 / 100) % 10);
+    buf[2] = '0' + ((ch1 / 10) % 10);
+    buf[3] = '0' + (ch1 % 10);
+    
+    // Channel 2
+    buf[5] = '0' + (ch2 / 1000);
+    buf[6] = '0' + ((ch2 / 100) % 10);
+    buf[7] = '0' + ((ch2 / 10) % 10);
+    buf[8] = '0' + (ch2 % 10);
+    
+    // Channel 3
+    buf[10] = '0' + (ch3 / 1000);
+    buf[11] = '0' + ((ch3 / 100) % 10);
+    buf[12] = '0' + ((ch3 / 10) % 10);
+    buf[13] = '0' + (ch3 % 10);
+    
+    // Channel 4
+    buf[15] = '0' + (ch4 / 1000);
+    buf[16] = '0' + ((ch4 / 100) % 10);
+    buf[17] = '0' + ((ch4 / 10) % 10);
+    buf[18] = '0' + (ch4 % 10);
+    
+    HAL_UART_Transmit(&huart6, buf, 20, 1);  // 20 bytes total
+}
 
+int main(void) {
+    HAL_Init();
     SystemClock_Config();
     MX_GPIO_Init();
-    MX_USART6_UART_Init(); 
+    MX_USART6_UART_Init();
     MX_DMA_Init();
     MX_ADC2_Init();
-    MX_I2C2_Init();
-
-    HAL_Delay(500);
-
-    printf("\r\n\n");
-    printf("========================================\r\n");
-    printf("    4-CHANNEL EMG PROSTHESIS CONTROL\r\n");
-    printf("    STM32F723E-DISCOVERY\r\n");
-    printf("========================================\r\n");
-    printf("Sample Rate: ~31,250 sets/sec\r\n\r\n");
-    EMG_Control_Init();
-    EMG_AutoCalibrate();
-
-    // I2C2
-    printf("=== I2C2 DEVICE SCAN ===\r\n");
-    for (uint8_t addr = 0x01; addr < 0x7F; addr++) {
-        if (HAL_I2C_IsDeviceReady(&hi2c2, (addr << 1), 1, 10) == HAL_OK) {
-            printf("Found device at 0x%02X\r\n", addr);
-        }
-    }
-
-    // Initialize PCA9685 on I2C2
-    if (PCA9685_Init(&pca9685, &hi2c2, PCA9685_I2C_ADDRESS, 50.0))
-    {
-        printf("PCA9685 initialized successfully on I2C2\r\n");
-    }
-    else
-    {
-        printf("PCA9685 initialization failed!\r\n");
-    }
-
-    // clear buffer
-    for (int i = 0; i < ADC_CHANNELS * SAMPLES; i++) {
-        adc_buffer[i] = 0;
-    }
-
-    printf("\r\n=== Starting ADC2 DMA ===\r\n");
-
-    // start ADC2 with DMA
-    if (HAL_ADC_Start_DMA(&hadc2, (uint32_t *)adc_buffer, ADC_CHANNELS * SAMPLES) != HAL_OK)
-    {
-        Error_Handler();
-    }
-    // Start conversion
-    HAL_ADC_Start(&hadc2);
-
-    uint32_t last_print = 0;
-
-    while (1)
-    {
-        if (data_rdy_f)
-        {
-            uint32_t now = HAL_GetTick();
+    
+    huart6.Init.BaudRate = 230400;
+    HAL_UART_Init(&huart6);
+    
+    // start ADC with DMA (small buffer for low latency)
+    HAL_ADC_Start_DMA(&hadc2, (uint32_t*)adc_buffer, BUF_SIZE);
+    
+    // send one-time header
+    const char* header = "START\n";
+    HAL_UART_Transmit(&huart6, (uint8_t*)header, 6, 100);
+    
+    uint32_t last_dma_pos = 0;
+    uint32_t sample_count = 0;
+    // uint32_t last_stats = HAL_GetTick();
+    
+    // LEDs
+    HAL_GPIO_WritePin(USER_LED_BLUE_GPIO_Port, USER_LED_BLUE_Pin, GPIO_PIN_SET);
+    
+    while (1) {
+        // direct register access to get DMA position
+        uint32_t dma_pos = BUF_SIZE - hdma_adc2.Instance->NDTR;
+        
+        if (dma_pos != last_dma_pos) {
+            // calc sample position (go back 1 complete sample)
+            uint32_t sample_idx = (dma_pos - ADC_CHANNELS + BUF_SIZE) % BUF_SIZE;
             
-            // print at ~1000Hz
-            if (now - last_print >= 1) {
-                int last_idx = (SAMPLES - 1) * ADC_CHANNELS;
+            if (sample_idx + 3 < BUF_SIZE) {
+                fast_output(adc_buffer[sample_idx],
+                           adc_buffer[sample_idx + 1],
+                           adc_buffer[sample_idx + 2],
+                           adc_buffer[sample_idx + 3]);
                 
-                // CH1,CH2,CH3,CH4
-                printf("%d,%d,%d,%d\r\n",
-                       adc_buffer[last_idx + 0],
-                       adc_buffer[last_idx + 1],
-                       adc_buffer[last_idx + 2],
-                       adc_buffer[last_idx + 3]);
+                sample_count++;
                 
-                last_print = now;
+                // toggle green LED every 1000 samples (visual indicator)
+                if (sample_count % 1000 == 0) {
+                    HAL_GPIO_TogglePin(USER_LED_GREEN_GPIO_Port, USER_LED_GREEN_Pin);
+                }
             }
             
-            data_rdy_f = false;
+            last_dma_pos = dma_pos;
         }
         
-        // toggle green LED for activity
-        static uint32_t last_led = 0;
-        if (HAL_GetTick() - last_led >= 500) {
-            HAL_GPIO_TogglePin(USER_LED_GREEN_GPIO_Port, USER_LED_GREEN_Pin);
-            last_led = HAL_GetTick();
-        }
-        
+        // print speed stats every 5 seconds
+        // if (HAL_GetTick() - last_stats >= 5000) {
+        //     uint32_t speed = sample_count / 5;
+            
+        //     // use blue LED to indicate stats calculation
+        //     HAL_GPIO_WritePin(USER_LED_BLUE_GPIO_Port, USER_LED_BLUE_Pin, GPIO_PIN_RESET);
+            
+        //     char stats_buf[32];
+        //     int len = sprintf(stats_buf, "SPD:%lu Hz\n", speed);
+        //     HAL_UART_Transmit(&huart6, (uint8_t*)stats_buf, len, 100);
+            
+        //     HAL_GPIO_WritePin(USER_LED_BLUE_GPIO_Port, USER_LED_BLUE_Pin, GPIO_PIN_SET);
+            
+        //     sample_count = 0;
+        //     last_stats = HAL_GetTick();
+        // }
     }
 }
 
-void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
-{
-    if (hadc->Instance == ADC2)
-    {
-        __DSB();
-        data_rdy_f = true;
-    }
-}
-
-void Error_Handler(void)
-{
-    printf("FATAL ERROR\r\n");
-    while (1)
-    {
+void Error_Handler(void) {
+    while (1) {
         HAL_GPIO_TogglePin(USER_LED_RED_GPIO_Port, USER_LED_RED_Pin);
-        HAL_Delay(100);
+        for(volatile int i = 0; i < 1000000; i++);
     }
 }
 
-extern "C"
-{
-    int _write(int file, char *ptr, int len)
-    {
-        HAL_UART_Transmit(&huart6, (uint8_t *)ptr, len, HAL_MAX_DELAY);
+extern "C" {
+    int _write(int file, char *ptr, int len) {
+        HAL_UART_Transmit(&huart6, (uint8_t*)ptr, len, 1);
         return len;
     }
 }
