@@ -1,5 +1,5 @@
 # prosthesis_2
-Forearm prosthesis using 3 Mioware Muscle Sensors.
+Forearm prosthesis using 4 Mioware Muscle Sensors.
 
 ﬂexor carpi radialis а0
 brachioradialis а1
@@ -16,3 +16,14 @@ flexor digitorum superficialis а3
     'okay': 7,           # index and thumb make circle, others opened
     'finger-gun': 8,     # index, thumb opened, others closed
     'rest': 9            # relaxed
+
+ph4 I2C2_SCL
+ph5 I2C2_SDA
+
+PA2 USART2_TX
+PA3 USART2_RX
+
+PC0 ADC2_IN10
+PC1 ADC2_IN11
+PA4 ADC2_IN4
+PC4 ADC2_IN14

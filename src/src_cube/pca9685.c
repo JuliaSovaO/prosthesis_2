@@ -5,18 +5,18 @@ static bool PCA9685_ReadRegister(PCA9685_HandleTypeDef *pca, uint8_t reg, uint8_
 
 bool PCA9685_Init(PCA9685_HandleTypeDef *pca, I2C_HandleTypeDef *hi2c, uint8_t address, float freq) {
     pca->hi2c = hi2c;
-    pca->address = address << 1; // Shift address for HAL
+    pca->address = address << 1; // shift address for HAL
     pca->frequency = freq;
     
-    // Reset device
+    // reset device
     if (!PCA9685_Reset(pca)) {
         return false;
     }
     
-    // Set PWM frequency
+    // set PWM frequency
     uint8_t prescale = (uint8_t)((25000000.0 / (4096.0 * freq)) - 1.0);
     
-    // Put to sleep to set prescale
+    // put to sleep to set prescale
     if (!PCA9685_Sleep(pca, true)) {
         return false;
     }
@@ -25,14 +25,14 @@ bool PCA9685_Init(PCA9685_HandleTypeDef *pca, I2C_HandleTypeDef *hi2c, uint8_t a
         return false;
     }
     
-    // Wake up
+    // wake up
     if (!PCA9685_Sleep(pca, false)) {
         return false;
     }
 
     HAL_Delay(1);
     
-    // Set mode register with auto-increment
+    // set mode register with auto-increment
     return PCA9685_WriteRegister(pca, PCA9685_MODE1_REG, PCA9685_AI);
 }
 
@@ -54,13 +54,13 @@ bool PCA9685_SetPWM(PCA9685_HandleTypeDef *pca, uint8_t channel, uint16_t on, ui
 }
 
 bool PCA9685_SetServoAngle(PCA9685_HandleTypeDef *pca, uint8_t channel, uint8_t angle) {
-    // Constrain angle to 0-180
+    // constrain angle to 0-180
     if (angle > 180) angle = 180;
     
-    // Map angle to pulse width
+    // map angle to pulse width
     uint16_t pulse = SERVO_MIN_PULSE + ((SERVO_MAX_PULSE - SERVO_MIN_PULSE) * angle) / 180;
     // printf("Servo %d: Angle=%d° -> Pulse=%dμs\r\n", channel, angle, pulse);
-    // Set PWM (always start at 0, end at pulse value)
+    // set PWM (always start at 0, end at pulse value)
     return PCA9685_SetPWM(pca, channel, 0, pulse);
 }
 
@@ -81,7 +81,7 @@ bool PCA9685_Sleep(PCA9685_HandleTypeDef *pca, bool sleep) {
 }
 
 bool PCA9685_Reset(PCA9685_HandleTypeDef *pca) {
-    // Software reset - write 0x06 to mode1 register
+    // software reset - write 0x06 to mode1 register
     return PCA9685_WriteRegister(pca, PCA9685_MODE1_REG, 0x06);
 }
 
@@ -100,7 +100,7 @@ static bool PCA9685_ReadRegister(PCA9685_HandleTypeDef *pca, uint8_t reg, uint8_
 }
 
 bool PCA9685_SetServoPulse(PCA9685_HandleTypeDef *pca, uint8_t channel, uint16_t pulse_us) {
-    // Convert microseconds to 12-bit PWM value
+    // convert microseconds to 12-bit PWM value
     // PCA9685 resolution: 4096 steps @ 50Hz = 20ms period
     // pulse_us / 20000 * 4096 = pulse_us * 0.2048
     uint16_t pwm_value = (pulse_us * 4096) / 20000;

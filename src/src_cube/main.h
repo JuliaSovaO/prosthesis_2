@@ -6,94 +6,64 @@ extern "C"
 {
 #endif
 
-#include "stm32f4xx_hal.h"
+#include "stm32f7xx_hal.h"
 #include "pca9685.h"
 #include "servo_control.h"
-#include "common_defs.h"
-#include "emg_classifier.h"
-#include "gesture.h"
+#include "gestures.h"
+#include "emg_control.h"
 #include <stdbool.h>
 #include <math.h>
 
-extern I2C_HandleTypeDef hi2c1;
-extern UART_HandleTypeDef huart1;
-extern ADC_HandleTypeDef hadc1;
-extern DMA_HandleTypeDef hdma_adc1;
-extern TIM_HandleTypeDef htim3;
+#define SAMPLES (uint16_t)512
+#define ADC_CHANNELS (uint16_t)4
+
+extern volatile bool data_rdy_f;
+extern uint16_t adc_buffer[];
 
 void Error_Handler(void);
-void InitAllServos(void); 
+void TestServo(void);
+void TestIndividualFingers(void);
 
-extern EMG_Buffer emg_buffer; 
+// I2C2 for PCA9685
+#define I2C2_SCL_Pin        GPIO_PIN_4
+#define I2C2_SCL_GPIO_Port  GPIOH
+#define I2C2_SDA_Pin        GPIO_PIN_5
+#define I2C2_SDA_GPIO_Port  GPIOH
 
-#define DATA_Ready_Pin GPIO_PIN_2
-#define DATA_Ready_GPIO_Port GPIOE
-#define CS_I2C_SPI_Pin GPIO_PIN_3
-#define CS_I2C_SPI_GPIO_Port GPIOE
-#define INT1_Pin GPIO_PIN_4
-#define INT1_GPIO_Port GPIOE
-#define INT2_Pin GPIO_PIN_5
-#define INT2_GPIO_Port GPIOE
-#define PC14_OSC32_IN_Pin GPIO_PIN_14
-#define PC14_OSC32_IN_GPIO_Port GPIOC
-#define PC15_OSC32_OUT_Pin GPIO_PIN_15
-#define PC15_OSC32_OUT_GPIO_Port GPIOC
-#define PH0_OSC_IN_Pin GPIO_PIN_0
-#define PH0_OSC_IN_GPIO_Port GPIOH
-#define PH1_OSC_OUT_Pin GPIO_PIN_1
-#define PH1_OSC_OUT_GPIO_Port GPIOH
-#define OTG_FS_PowerSwitchOn_Pin GPIO_PIN_0
-#define OTG_FS_PowerSwitchOn_GPIO_Port GPIOC
-#define PDM_OUT_Pin GPIO_PIN_3
-#define PDM_OUT_GPIO_Port GPIOC
-#define I2S3_WS_Pin GPIO_PIN_4
-#define I2S3_WS_GPIO_Port GPIOA
-#define SPI1_SCK_Pin GPIO_PIN_5
-#define SPI1_SCK_GPIO_Port GPIOA
-#define SPI1_MISO_Pin GPIO_PIN_6
-#define SPI1_MISO_GPIO_Port GPIOA
-#define SPI1_MOSI_Pin GPIO_PIN_7
-#define SPI1_MOSI_GPIO_Port GPIOA
-#define CLK_IN_Pin GPIO_PIN_10
-#define CLK_IN_GPIO_Port GPIOB
-#define LD4_Pin GPIO_PIN_12
-#define LD4_GPIO_Port GPIOD
-#define LD3_Pin GPIO_PIN_13
-#define LD3_GPIO_Port GPIOD
-#define LD5_Pin GPIO_PIN_14
-#define LD5_GPIO_Port GPIOD
-#define LD6_Pin GPIO_PIN_15
-#define LD6_GPIO_Port GPIOD
-#define I2S3_MCK_Pin GPIO_PIN_7
-#define I2S3_MCK_GPIO_Port GPIOC
-#define VBUS_FS_Pin GPIO_PIN_9
-#define VBUS_FS_GPIO_Port GPIOA
-#define OTG_FS_ID_Pin GPIO_PIN_10
-#define OTG_FS_ID_GPIO_Port GPIOA
-#define OTG_FS_DM_Pin GPIO_PIN_11
-#define OTG_FS_DM_GPIO_Port GPIOA
-#define OTG_FS_DP_Pin GPIO_PIN_12
-#define OTG_FS_DP_GPIO_Port GPIOA
-#define SWDIO_Pin GPIO_PIN_13
-#define SWDIO_GPIO_Port GPIOA
-#define SWCLK_Pin GPIO_PIN_14
-#define SWCLK_GPIO_Port GPIOA
-#define I2S3_SCK_Pin GPIO_PIN_10
-#define I2S3_SCK_GPIO_Port GPIOC
-#define I2S3_SD_Pin GPIO_PIN_12
-#define I2S3_SD_GPIO_Port GPIOC
-#define Audio_RST_Pin GPIO_PIN_4
-#define Audio_RST_GPIO_Port GPIOD
-#define OTG_FS_OverCurrent_Pin GPIO_PIN_5
-#define OTG_FS_OverCurrent_GPIO_Port GPIOD
-#define SWO_Pin GPIO_PIN_3
-#define SWO_GPIO_Port GPIOB
-#define Audio_SCL_Pin GPIO_PIN_6
-#define Audio_SCL_GPIO_Port GPIOB
-#define Audio_SDA_Pin GPIO_PIN_9
-#define Audio_SDA_GPIO_Port GPIOB
-#define MEMS_INT2_Pin GPIO_PIN_1
-#define MEMS_INT2_GPIO_Port GPIOE
+// USART6 for built-in Virtual COM Port (connected to ST-LINK)
+#define USART6_TX_Pin        GPIO_PIN_6
+#define USART6_TX_GPIO_Port  GPIOC
+#define USART6_RX_Pin        GPIO_PIN_7
+#define USART6_RX_GPIO_Port  GPIOC
+
+// ADC2 pins for 4 EMG sensors
+#define EMG1_PIN            GPIO_PIN_0
+#define EMG1_GPIO_PORT      GPIOC
+#define EMG1_ADC_CHANNEL    ADC_CHANNEL_10
+
+#define EMG2_PIN            GPIO_PIN_1
+#define EMG2_GPIO_PORT      GPIOC
+#define EMG2_ADC_CHANNEL    ADC_CHANNEL_11
+
+#define EMG3_PIN            GPIO_PIN_4
+#define EMG3_GPIO_PORT      GPIOA
+#define EMG3_ADC_CHANNEL    ADC_CHANNEL_4
+
+#define EMG4_PIN            GPIO_PIN_4
+#define EMG4_GPIO_PORT      GPIOC
+#define EMG4_ADC_CHANNEL    ADC_CHANNEL_14
+
+// User LEDs 
+#define USER_LED_RED_Pin    GPIO_PIN_1
+#define USER_LED_RED_GPIO_Port GPIOB
+#define USER_LED_GREEN_Pin  GPIO_PIN_0
+#define USER_LED_GREEN_GPIO_Port GPIOB
+#define USER_LED_BLUE_Pin   GPIO_PIN_5
+#define USER_LED_BLUE_GPIO_Port GPIOA
+
+// User Button 
+#define USER_BUTTON_Pin     GPIO_PIN_0
+#define USER_BUTTON_GPIO_Port GPIOA
 
 #ifdef __cplusplus
 }

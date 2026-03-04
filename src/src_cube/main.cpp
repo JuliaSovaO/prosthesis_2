@@ -1,196 +1,150 @@
 #include "main.h"
+#include "pca9685.h"
 #include "periph_init.h"
-#include "emg_classifier.h"
-#include "signal_validation.h"
-#include "gesture.h"
-#include <string.h>
-#include <stdio.h> 
+#include "stm32f7xx_hal.h"
+#include "servo_control.h"
+#include "gestures.h"
+#include "emg_control.h"
+#include <stdio.h>
 
-EMG_Buffer emg_buffer;
+// const uint16_t SAMPLES = 512;
+// const uint16_t ADC_CHANNELS = 4;
 
-GestureType current_gesture = GESTURE_REST;
-GestureType last_executed_gesture = GESTURE_REST;
+volatile bool data_rdy_f = false;
+__attribute__((aligned(4))) uint16_t adc_buffer[ADC_CHANNELS * SAMPLES] = {0};
+PCA9685_HandleTypeDef pca9685;
 
-// Feature buffer
-float extracted_features[TOTAL_FEATURES];
+extern UART_HandleTypeDef huart6;
 
-#define ADC_CHANNELS 4
-#define BUF_SIZE 8 
-__attribute__((aligned(4))) uint16_t adc_buffer[BUF_SIZE] = {0};
-
-extern ADC_HandleTypeDef hadc1;
-extern DMA_HandleTypeDef hdma_adc1;
-extern UART_HandleTypeDef huart1;
-extern TIM_HandleTypeDef htim3;
-
-// Clean output: sensors + gesture only
-void output_sensors_and_gesture(uint16_t ch1, uint16_t ch2, uint16_t ch3, uint16_t ch4, GestureType gesture) {
-    // Format: "S1,S2,S3,S4:G" (e.g., "1234,567,890,123:9")
-    static char buf[30];
-    int len = snprintf(buf, sizeof(buf), "%04d,%04d,%04d,%04d:%d\n", 
-                      ch1, ch2, ch3, ch4, gesture);
-    HAL_UART_Transmit(&huart1, (uint8_t*)buf, len, 10);
-}
-
-// Only output when gesture changes
-void output_gesture_change(GestureType old_gesture, GestureType new_gesture) {
-    if (old_gesture != new_gesture) {
-        char buf[30];
-        int len = snprintf(buf, sizeof(buf), "Gesture: %d -> %d\n", old_gesture, new_gesture);
-        HAL_UART_Transmit(&huart1, (uint8_t*)buf, len, 10);
-    }
-}
-
-int main(void) {
+int main(void)
+{
     HAL_Init();
+
+    // PA5 blue LED
+    __HAL_RCC_GPIOA_CLK_ENABLE();
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+    GPIO_InitStruct.Pin = GPIO_PIN_5;
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+    
+    // blink LED 5 times rapidly
+    for(int i = 0; i < 5; i++) {
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET); // LED on
+        HAL_Delay(200);
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);   // LED off
+        HAL_Delay(200);
+    }
+
     SystemClock_Config();
     MX_GPIO_Init();
-    MX_USART1_UART_Init();
+    MX_USART6_UART_Init(); 
     MX_DMA_Init();
-    MX_ADC1_Init();
-    MX_TIM3_Init();
-    MX_I2C1_Init();
-    
-    emg_buffer_init(&emg_buffer);
-    InitAllServos();
+    MX_ADC2_Init();
+    MX_I2C2_Init();
 
-    // Startup message only
-    const char* startup_msg = "EMG System Ready\n";
-    HAL_UART_Transmit(&huart1, (uint8_t*)startup_msg, strlen(startup_msg), 100);
-    
-    // Header for data stream
-    const char* header = "S1,S2,S3,S4:GESTURE\n";
-    HAL_UART_Transmit(&huart1, (uint8_t*)header, strlen(header), 100);
+    HAL_Delay(500);
 
-    HAL_TIM_Base_Start(&htim3);
-    HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_buffer, BUF_SIZE);
-    
-    uint32_t last_dma_pos = 0;
-    uint32_t last_classification_time = HAL_GetTick();
-    uint32_t last_output_time = HAL_GetTick();
-    
-    // Gesture history for consistency (reduced from 10 to 5 for faster response)
-    GestureType gesture_history[5] = {GESTURE_REST};
-    uint8_t history_index = 0;
-    uint8_t history_count = 0;
-    
-    // For output throttling
-    uint16_t output_ch1 = 0, output_ch2 = 0, output_ch3 = 0, output_ch4 = 0;
-    
-    while (1) {
-        uint32_t dma_pos = BUF_SIZE - hdma_adc1.Instance->NDTR;
-        
-        if (dma_pos != last_dma_pos) {
-            uint32_t sample_idx = (dma_pos - ADC_CHANNELS + BUF_SIZE) % BUF_SIZE;
+    printf("\r\n\n");
+    printf("========================================\r\n");
+    printf("=== 4-CHANNEL EMG PROSTHESIS CONTROL ===\r\n");
+    printf("=== STM32F723E-DISCOVERY            ===\r\n");
+    printf("========================================\r\n");
+    printf("Sample Rate: ~31,250 sets/sec\r\n\r\n");
+    EMG_Control_Init();
+    EMG_AutoCalibrate();
+
+    // I2C2
+    printf("=== I2C2 DEVICE SCAN ===\r\n");
+    for (uint8_t addr = 0x01; addr < 0x7F; addr++) {
+        if (HAL_I2C_IsDeviceReady(&hi2c2, (addr << 1), 1, 10) == HAL_OK) {
+            printf("Found device at 0x%02X\r\n", addr);
+        }
+    }
+
+    // Initialize PCA9685 on I2C2
+    if (PCA9685_Init(&pca9685, &hi2c2, PCA9685_I2C_ADDRESS, 50.0))
+    {
+        printf("PCA9685 initialized successfully on I2C2\r\n");
+    }
+    else
+    {
+        printf("PCA9685 initialization failed!\r\n");
+    }
+
+    // clear buffer
+    for (int i = 0; i < ADC_CHANNELS * SAMPLES; i++) {
+        adc_buffer[i] = 0;
+    }
+
+    printf("\r\n=== Starting ADC2 DMA ===\r\n");
+
+    // start ADC2 with DMA
+    if (HAL_ADC_Start_DMA(&hadc2, (uint32_t *)adc_buffer, ADC_CHANNELS * SAMPLES) != HAL_OK)
+    {
+        Error_Handler();
+    }
+
+    uint32_t last_print = 0;
+
+    while (1)
+    {
+        if (data_rdy_f)
+        {
+            uint32_t now = HAL_GetTick();
             
-            if (sample_idx + 3 < BUF_SIZE) {
-                // Store sensor readings for output
-                output_ch1 = adc_buffer[sample_idx];
-                output_ch2 = adc_buffer[sample_idx + 1];
-                output_ch3 = adc_buffer[sample_idx + 2];
-                output_ch4 = adc_buffer[sample_idx + 3];
+            // print at ~1000Hz
+            if (now - last_print >= 1) {
+                int last_idx = (SAMPLES - 1) * ADC_CHANNELS;
                 
-                // Add sample to EMG buffer
-                emg_buffer_add_sample(&emg_buffer, output_ch1, output_ch2, output_ch3, output_ch4);
+                // CH1,CH2,CH3,CH4
+                printf("%d,%d,%d,%d\r\n",
+                       adc_buffer[last_idx + 0],
+                       adc_buffer[last_idx + 1],
+                       adc_buffer[last_idx + 2],
+                       adc_buffer[last_idx + 3]);
                 
-                // Process classification every 50ms (20Hz)
-                uint32_t current_time = HAL_GetTick();
-                if (current_time - last_classification_time >= 50) {
-                    last_classification_time = current_time;
-                    
-                    // Try to process a window
-                    if (emg_buffer_process_window(&emg_buffer, extracted_features)) {
-                        
-                        // Validate signal
-                        if (are_features_valid(extracted_features)) {
-                            // Valid signal - classify
-                            GestureType new_gesture = classify_gesture(extracted_features);
-                            
-                            // Update gesture history
-                            gesture_history[history_index] = new_gesture;
-                            history_index = (history_index + 1) % 5;
-                            if (history_count < 5) history_count++;
-                            
-                            // Check for consistent gesture (3 out of 5)
-                            if (history_count >= 3) {
-                                int count[10] = {0};
-                                for (int i = 0; i < history_count; i++) {
-                                    count[gesture_history[i]]++;
-                                }
-                                
-                                // Find most frequent gesture
-                                GestureType most_frequent = GESTURE_REST;
-                                int max_count = 0;
-                                for (int i = 0; i < 10; i++) {
-                                    if (count[i] > max_count) {
-                                        max_count = count[i];
-                                        most_frequent = (GestureType)i;
-                                    }
-                                }
-                                
-                                // If gesture is consistent (at least 3 of last 5)
-                                if (max_count >= 3 && most_frequent != current_gesture) {
-                                    // Output gesture change
-                                    output_gesture_change(current_gesture, most_frequent);
-                                    
-                                    // Update and execute
-                                    current_gesture = most_frequent;
-                                    if (current_gesture != last_executed_gesture) {
-                                        last_executed_gesture = current_gesture;
-                                        execute_gesture(last_executed_gesture);
-                                    }
-                                }
-                            }
-                        } else {
-                            // Invalid signal - reset to REST
-                            if (current_gesture != GESTURE_REST) {
-                                output_gesture_change(current_gesture, GESTURE_REST);
-                                current_gesture = GESTURE_REST;
-                                last_executed_gesture = GESTURE_REST;
-                                execute_gesture(GESTURE_REST);
-                            }
-                        }
-                    }
-                }
-                
-                // Output sensor data at 10Hz (every 100ms)
-                if (current_time - last_output_time >= 100) {
-                    last_output_time = current_time;
-                    output_sensors_and_gesture(output_ch1, output_ch2, output_ch3, output_ch4, current_gesture);
-                }
+                last_print = now;
             }
             
-            last_dma_pos = dma_pos;
+            data_rdy_f = false;
         }
         
-        // Minimal LED blink (once per second)
-        static uint32_t led_timer = 0;
-        if (HAL_GetTick() - led_timer > 1000) {
-            led_timer = HAL_GetTick();
-            HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+        // toggle green LED for activity
+        static uint32_t last_led = 0;
+        if (HAL_GetTick() - last_led >= 500) {
+            HAL_GPIO_TogglePin(USER_LED_GREEN_GPIO_Port, USER_LED_GREEN_Pin);
+            last_led = HAL_GetTick();
         }
+        
     }
 }
 
-void Error_Handler(void) {
-    while (1) {
-        HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
+{
+    if (hadc->Instance == ADC2)
+    {
+        __DSB();
+        data_rdy_f = true;
+    }
+}
+
+void Error_Handler(void)
+{
+    printf("FATAL ERROR\r\n");
+    while (1)
+    {
+        HAL_GPIO_TogglePin(USER_LED_RED_GPIO_Port, USER_LED_RED_Pin);
         HAL_Delay(100);
     }
 }
 
-extern "C" {
-    int _write(int file, char *ptr, int len) {
-        // Disable stdio output to reduce noise
-        // HAL_UART_Transmit(&huart1, (uint8_t*)ptr, len, 1);
+extern "C"
+{
+    int _write(int file, char *ptr, int len)
+    {
+        HAL_UART_Transmit(&huart6, (uint8_t *)ptr, len, HAL_MAX_DELAY);
         return len;
-    }
-    
-    void DMA2_Stream0_IRQHandler(void) { 
-        HAL_DMA_IRQHandler(&hdma_adc1); 
-    }
-    
-    void TIM3_IRQHandler(void) { 
-        HAL_TIM_IRQHandler(&htim3); 
     }
 }

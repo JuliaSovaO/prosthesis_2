@@ -5,14 +5,14 @@
 extern "C" {
 #endif
 
-#include "stm32f4xx_hal.h"
+#include "stm32f7xx_hal.h"
 #include <stdint.h>
 #include <stdbool.h>
 
 // PCA9685 I2C Address
 #define PCA9685_I2C_ADDRESS 0x40
 
-// Register addresses
+// register addresses
 #define PCA9685_MODE1_REG       0x00
 #define PCA9685_MODE2_REG       0x01
 #define PCA9685_PRESCALE_REG    0xFE
@@ -21,7 +21,7 @@ extern "C" {
 #define PCA9685_LED0_OFF_L      0x08
 #define PCA9685_LED0_OFF_H      0x09
 
-// Mode1 register bits
+// mode1 register bits
 #define PCA9685_RESTART         0x80
 #define PCA9685_EXTCLK          0x40
 #define PCA9685_AI              0x20
