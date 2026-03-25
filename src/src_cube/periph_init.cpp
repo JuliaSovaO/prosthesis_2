@@ -74,7 +74,7 @@ void MX_GPIO_Init(void)
 void MX_USART6_UART_Init(void)
 {
     huart6.Instance = USART6;
-    huart6.Init.BaudRate = 115200;
+    huart6.Init.BaudRate = 230400;
     huart6.Init.WordLength = UART_WORDLENGTH_8B;
     huart6.Init.StopBits = UART_STOPBITS_1;
     huart6.Init.Parity = UART_PARITY_NONE;
@@ -151,7 +151,7 @@ void MX_ADC2_Init(void)
     hadc2.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV4;
     hadc2.Init.Resolution = ADC_RESOLUTION_12B;
     hadc2.Init.ScanConvMode = ENABLE;
-    hadc2.Init.ContinuousConvMode = ENABLE;  // Continuous mode
+    hadc2.Init.ContinuousConvMode = ENABLE;
     hadc2.Init.DiscontinuousConvMode = DISABLE;
     hadc2.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
     hadc2.Init.ExternalTrigConv = ADC_SOFTWARE_START;
@@ -165,29 +165,29 @@ void MX_ADC2_Init(void)
         Error_Handler();
     }
 
-    // Configure channels with proper sampling time
     sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES;
     sConfig.Offset = 0;
     
-    // Channel 1: PC0 - ADC2_IN10
+    // FIXED: Swap Rank 2 and Rank 3 based on test results
+    // Channel 1: A0 (PC0)
     sConfig.Channel = ADC_CHANNEL_10;
     sConfig.Rank = 1;
     if (HAL_ADC_ConfigChannel(&hadc2, &sConfig) != HAL_OK)
         Error_Handler();
 
-    // Channel 2: PC1 - ADC2_IN11
-    sConfig.Channel = ADC_CHANNEL_11;
+    // Channel 2: A2 (PA4) - NOT A1!
+    sConfig.Channel = ADC_CHANNEL_4;
     sConfig.Rank = 2;
     if (HAL_ADC_ConfigChannel(&hadc2, &sConfig) != HAL_OK)
         Error_Handler();
 
-    // Channel 3: PA4 - ADC2_IN4
-    sConfig.Channel = ADC_CHANNEL_4;
+    // Channel 3: A1 (PC1) - NOT A2!
+    sConfig.Channel = ADC_CHANNEL_11;
     sConfig.Rank = 3;
     if (HAL_ADC_ConfigChannel(&hadc2, &sConfig) != HAL_OK)
         Error_Handler();
 
-    // Channel 4: PC4 - ADC2_IN14
+    // Channel 4: A3 (PC4)
     sConfig.Channel = ADC_CHANNEL_14;
     sConfig.Rank = 4;
     if (HAL_ADC_ConfigChannel(&hadc2, &sConfig) != HAL_OK)
