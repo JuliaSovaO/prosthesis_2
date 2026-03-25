@@ -46,7 +46,7 @@ void SysTick_Handler(void)
     HAL_IncTick();
 }
 
-void DMA2_Stream2_IRQHandler(void)
-{
-    HAL_DMA_IRQHandler(&hdma_adc2);
-}
+// void DMA2_Stream2_IRQHandler(void)
+// {
+//     HAL_DMA_IRQHandler(&hdma_adc2);
+// }
