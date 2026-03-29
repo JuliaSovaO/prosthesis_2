@@ -1,0 +1,209 @@
+---
+title: "TEST_SENSORS/DATA"
+output:
+  html_document:
+    df_print: paged
+---
+```{r}
+# =========================
+# R script for RStudio
+# =========================
+
+# 1. Вкажи шлях до папки з файлами
+folder_path <- "D:/AKS_project/prosthesis_2/data/2503"
+# Наприклад:
+# folder_path <- "D:/project/files"
+
+# 2. Знаходимо всі .txt файли, але не беремо вже готовий all_data.txt
+files <- list.files(
+  path = folder_path,
+  pattern = "\\.txt$",
+  full.names = TRUE
+)
+
+files <- files[basename(files) != "all_data.txt"]
+
+# 3. Функція перевірки одного рядка:
+#    має бути рівно 4 числа через кому, кожне від 0 до 9999
+is_valid_line <- function(line) {
+  line <- trimws(line)
+  
+  # шаблон:
+  # число,число,число,число
+  # кожне число 1-4 цифри, тобто потенційно 0..9999
+  pattern <- "^\\d{1,4},\\d{1,4},\\d{1,4},\\d{1,4}$"
+  
+  if (!grepl(pattern, line)) {
+    return(FALSE)
+  }
+  
+  parts <- strsplit(line, ",")[[1]]
+  nums <- as.integer(parts)
+  
+  if (length(nums) != 4) {
+    return(FALSE)
+  }
+  
+  all(!is.na(nums) & nums >= 0 & nums <= 9999)
+}
+
+# 4. Масив для всіх очищених і промаркованих рядків
+all_lines <- character()
+
+# 5. Обробка кожного файлу
+for (file in files) {
+  # читаємо всі рядки
+  lines <- readLines(file, warn = FALSE, encoding = "UTF-8")
+  
+  # прибираємо порожні рядки та пробіли по краях
+  lines <- trimws(lines)
+  lines <- lines[lines != ""]
+  
+  # лишаємо тільки валідні рядки
+  valid_lines <- lines[sapply(lines, is_valid_line)]
+  
+  # беремо назву файлу без розширення як label
+  label <- tools::file_path_sans_ext(basename(file))
+  
+  # дописуємо label в кінець кожного рядка
+  labeled_lines <- paste0(valid_lines, ",", label)
+  
+  # перезаписуємо файл уже очищеним і з label
+  writeLines(labeled_lines, file, useBytes = TRUE)
+  
+  # додаємо в загальний список
+  all_lines <- c(all_lines, labeled_lines)
+}
+
+# 6. Записуємо всі дані в один файл
+output_file <- file.path(folder_path, "all_data.txt")
+writeLines(all_lines, output_file, useBytes = TRUE)
+
+cat("Готово!\n")
+cat("Опрацьовано файлів:", length(files), "\n")
+cat("Результат записано у:", output_file, "\n")
+```
+
+```{r}
+library(tidyverse)
+```
+
+```{r}
+path <- "D:/AKS_project/prosthesis_2/data/2503/all_data.csv"
+
+df <- read_csv(
+  path,
+  col_names = c("s1", "s2", "s3", "s4", "gesture"),
+  show_col_types = FALSE
+)
+```
+
+```{r}
+df <- df %>%
+  mutate(
+    s1 = as.numeric(s1),
+    s2 = as.numeric(s2),
+    s3 = as.numeric(s3),
+    s4 = as.numeric(s4),
+    gesture = as.factor(gesture)
+  )
+```
+
+```{r}
+df <- df %>%
+  mutate(
+    sample_id = cumsum(gesture != lag(gesture, default = first(gesture))) + 1
+  )
+```
+
+```{r}
+df <- df %>%
+  group_by(sample_id) %>%
+  mutate(t = row_number()) %>%
+  ungroup()
+```
+
+```{r}
+df_long <- df %>%
+  pivot_longer(
+    cols = c(s1, s2, s3, s4),
+    names_to = "sensor",
+    values_to = "value"
+  )
+```
+
+```{r}
+one_sample_per_gesture <- df_long %>%
+  group_by(gesture) %>%
+  filter(sample_id == first(sample_id)) %>%
+  ungroup()
+```
+
+```{r}
+one_sample_per_gesture_thin <- one_sample_per_gesture %>%
+  group_by(gesture, sensor) %>%
+  slice(seq(1, n(), by = 20)) %>%
+  ungroup()
+```
+
+
+```{r}
+gesture_list <- unique(one_sample_per_gesture_thin$gesture)
+
+plot_list <- lapply(gesture_list, function(g) {
+  one_sample_per_gesture_thin %>%
+    filter(gesture == g) %>%
+    ggplot(aes(x = t, y = value, color = sensor)) +
+    geom_line(linewidth = 0.6) +
+    facet_grid(sensor ~ ., scales = "free_y") +
+    labs(
+      title = paste("Signal shapes for gesture:", g),
+      x = "Time step",
+      y = "Sensor value"
+    ) +
+    theme_minimal(base_size = 14) +
+    theme(legend.position = "none")
+})
+```
+
+```{r}
+plot_list[[1]]
+plot_list[[2]]
+plot_list[[3]]
+plot_list[[4]]
+plot_list[[5]]
+plot_list[[6]]
+plot_list[[7]]
+plot_list[[8]]
+plot_list[[9]]
+plot_list[[10]]
+```
+
+
+```{r}
+plot_sensor_density <- function(sensor_name) {
+  df_long %>%
+    filter(sensor == sensor_name) %>%
+    ggplot(aes(x = value, color = gesture)) +
+    geom_density(linewidth = 1) +
+    labs(
+      title = paste("Value distributions for different gestures on sensor", sensor_name),
+      x = "Sensor value",
+      y = "Density"
+    ) +
+    theme_minimal(base_size = 14)
+}
+```
+```{r}
+plot_sensor_density("s1")
+plot_sensor_density("s2")
+plot_sensor_density("s3")
+plot_sensor_density("s4")
+```
+
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
