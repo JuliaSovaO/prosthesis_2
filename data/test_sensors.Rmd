@@ -10,7 +10,7 @@ output:
 # =========================
 
 # 1. Вкажи шлях до папки з файлами
-folder_path <- "D:/AKS_project/prosthesis_2/data/2503"
+folder_path <- "D:/AKS_project/prosthesis_2/data/2903"
 # Наприклад:
 # folder_path <- "D:/project/files"
 
@@ -76,7 +76,7 @@ for (file in files) {
 }
 
 # 6. Записуємо всі дані в один файл
-output_file <- file.path(folder_path, "all_data.txt")
+output_file <- file.path(folder_path, "all_data.csv")
 writeLines(all_lines, output_file, useBytes = TRUE)
 
 cat("Готово!\n")
@@ -89,7 +89,7 @@ library(tidyverse)
 ```
 
 ```{r}
-path <- "D:/AKS_project/prosthesis_2/data/2503/all_data.csv"
+path <- "D:/AKS_project/prosthesis_2/data/2903/all_data.csv"
 
 df <- read_csv(
   path,
@@ -200,7 +200,28 @@ plot_sensor_density("s2")
 plot_sensor_density("s3")
 plot_sensor_density("s4")
 ```
+```{r}
+plot_sensor_density <- function(sensor_name, x_max = 1500) {
+  df_long %>%
+    filter(sensor == sensor_name) %>%
+    ggplot(aes(x = value, color = gesture)) +
+    geom_density(linewidth = 1) +
+    coord_cartesian(xlim = c(0, x_max)) +
+    labs(
+      title = paste("Value distributions for different gestures on sensor", sensor_name),
+      x = "Sensor value",
+      y = "Density"
+    ) +
+    theme_minimal(base_size = 14)
+}
+```
 
+```{r}
+plot_sensor_density("s1", x_max = 800)
+plot_sensor_density("s2", x_max = 500)
+plot_sensor_density("s3", x_max = 500)
+plot_sensor_density("s4", x_max = 1500)
+```
 
 Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
 
