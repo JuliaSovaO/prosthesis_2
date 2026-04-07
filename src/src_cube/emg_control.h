@@ -2,41 +2,58 @@
 #define EMG_CONTROL_H
 
 #include "servo_control.h"
+#include "ann/ann_inference.h"
 
-#define EMG_WINDOW_SIZE     50
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-#define EMG_THRESHOLD_BASE   400
-#define EMG_HYSTERESIS       70
-#define STATE_DEBOUNCE_MS    150
+// EMG Configuration
+#define EMG_WINDOW_SIZE     50      
+#define EMG_WINDOW_STEP     25      
+#define EMG_BUFFER_SIZE     100     
+#define PREDICTION_HISTORY  5       
+#define STATE_DEBOUNCE_MS   200     
+#define ACTIVITY_TIMEOUT_MS 1500    
+#define MIN_CONFIDENCE      0.3f    
 
-#define CH1 0  // PA0 - EMG Sensor 1
-#define CH2 1  // PA1 - EMG Sensor 2  
-#define CH3 2  // PA2 - EMG Sensor 3
-#define CH4 3  // PA3 - EMG Sensor 4
-
-#define STATE_IDLE          0
-#define STATE_CLOSE         1  // All fingers close
-#define STATE_OPEN          2  // All fingers open
-#define STATE_THUMB         3  // Thumb only
-#define STATE_INDEX         4  // Index finger only
-#define STATE_MIDDLE        5  // Middle finger only
-#define STATE_RING          6  // Ring finger only
-#define STATE_PINKY         7  // Pinky only
-#define STATE_PINCH         8  // Thumb + index pinch
+// State machine states (10 classes including REST)
+typedef enum {
+    STATE_ROCK = 0,
+    STATE_SCISSORS = 1,
+    STATE_PAPER = 2,
+    STATE_FUCK = 3,
+    STATE_THREE = 4,
+    STATE_FOUR = 5,
+    STATE_GOOD = 6,
+    STATE_OKAY = 7,
+    STATE_FINGER_GUN = 8,
+    STATE_REST = 9,
+    STATE_IDLE = 9,
+    STATE_COUNT = 10
+} ProsthesisState_t;
 
 typedef struct {
-    uint8_t current_angle;
-    uint8_t target_angle;
-    uint8_t min_angle;
-    uint8_t max_angle;
-} ServoState_t;
+    uint8_t thumb_angle;
+    uint8_t index_angle;
+    uint8_t middle_angle;
+    uint8_t ring_angle;
+    uint8_t pinky_angle;
+} GestureAngles_t;
 
 extern volatile bool data_rdy_f;
 extern uint16_t adc_buffer[];
+extern PCA9685_HandleTypeDef pca9685;
 
 void EMG_Control_Init(void);
 void EMG_Control_Process(void);
 void EMG_AutoCalibrate(void);
 void EMG_PrintRawData(void);
+void EMG_SetDebugMode(uint8_t enable);
+const char* EMG_GetStateName(ProsthesisState_t state);
 
+#ifdef __cplusplus
+}
 #endif
+
+#endif // EMG_CONTROL_H

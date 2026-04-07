@@ -3,12 +3,8 @@
 #include "periph_init.h"
 #include "stm32f7xx_hal.h"
 #include "servo_control.h"
-#include "gestures.h"
 #include "emg_control.h"
 #include <stdio.h>
-
-// const uint16_t SAMPLES = 512;
-// const uint16_t ADC_CHANNELS = 4;
 
 volatile bool data_rdy_f = false;
 __attribute__((aligned(4))) uint16_t adc_buffer[ADC_CHANNELS * SAMPLES] = {0};
@@ -20,7 +16,7 @@ int main(void)
 {
     HAL_Init();
 
-    // PA5 blue LED
+    // Blue LED on PA5 for status
     __HAL_RCC_GPIOA_CLK_ENABLE();
     GPIO_InitTypeDef GPIO_InitStruct = {0};
     GPIO_InitStruct.Pin = GPIO_PIN_5;
@@ -29,11 +25,11 @@ int main(void)
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
     HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
     
-    // blink LED 5 times rapidly
-    for(int i = 0; i < 5; i++) {
-        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET); // LED on
+    // Blink LED 3 times to indicate boot
+    for(int i = 0; i < 3; i++) {
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
         HAL_Delay(200);
-        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);   // LED off
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
         HAL_Delay(200);
     }
 
@@ -48,78 +44,76 @@ int main(void)
 
     printf("\r\n\n");
     printf("========================================\r\n");
-    printf("    4-CHANNEL EMG PROSTHESIS CONTROL\r\n");
+    printf("    EMG ANN PROSTHESIS CONTROL v2.0\r\n");
     printf("    STM32F723E-DISCOVERY\r\n");
     printf("========================================\r\n");
-    printf("Sample Rate: ~31,250 sets/sec\r\n\r\n");
-    EMG_Control_Init();
-    EMG_AutoCalibrate();
-
-    // I2C2
-    printf("=== I2C2 DEVICE SCAN ===\r\n");
-    for (uint8_t addr = 0x01; addr < 0x7F; addr++) {
-        if (HAL_I2C_IsDeviceReady(&hi2c2, (addr << 1), 1, 10) == HAL_OK) {
-            printf("Found device at 0x%02X\r\n", addr);
-        }
-    }
-
+    printf("ADC Sampling Rate: ~31,250 Hz\r\n");
+    printf("ANN Input: %d features\r\n", ANN_INPUT_SIZE);
+    printf("ANN Output: %d gestures\r\n", ANN_NUM_CLASSES);
+    printf("Window: %d ms, Step: %d ms\r\n", 
+           (EMG_WINDOW_SIZE * 1000) / 1000,
+           (EMG_WINDOW_STEP * 1000) / 1000);
+    
     // Initialize PCA9685 on I2C2
+    printf("\r\n=== INITIALIZING PCA9685 ===\r\n");
     if (PCA9685_Init(&pca9685, &hi2c2, PCA9685_I2C_ADDRESS, 50.0))
     {
-        printf("PCA9685 initialized successfully on I2C2\r\n");
+        printf("PCA9685 initialized successfully\r\n");
     }
     else
     {
-        printf("PCA9685 initialization failed!\r\n");
+        printf("PCA9685 initialization FAILED!\r\n");
+        Error_Handler();
     }
-
-    // clear buffer
+    
+    // Initialize EMG control (includes ANN)
+    EMG_Control_Init();
+    
+    // Auto-calibrate baseline
+    EMG_AutoCalibrate();
+    
+    // Clear ADC buffer
     for (int i = 0; i < ADC_CHANNELS * SAMPLES; i++) {
         adc_buffer[i] = 0;
     }
 
-    printf("\r\n=== Starting ADC2 DMA ===\r\n");
+    printf("\r\n=== STARTING ADC2 DMA ===\r\n");
+    printf("System ready! Make a gesture to begin...\r\n");
+    printf("========================================\r\n\n");
 
-    // start ADC2 with DMA
+    // Start ADC2 with DMA
     if (HAL_ADC_Start_DMA(&hadc2, (uint32_t *)adc_buffer, ADC_CHANNELS * SAMPLES) != HAL_OK)
     {
         Error_Handler();
     }
-    // Start conversion
     HAL_ADC_Start(&hadc2);
 
-    uint32_t last_print = 0;
+    uint32_t last_heartbeat = 0;
 
     while (1)
     {
-        if (data_rdy_f)
-        {
-            uint32_t now = HAL_GetTick();
-            
-            // print at ~1000Hz
-            if (now - last_print >= 1) {
-                int last_idx = (SAMPLES - 1) * ADC_CHANNELS;
-                
-                // CH1,CH2,CH3,CH4
-                printf("%d,%d,%d,%d\r\n",
-                       adc_buffer[last_idx + 0],
-                       adc_buffer[last_idx + 1],
-                       adc_buffer[last_idx + 2],
-                       adc_buffer[last_idx + 3]);
-                
-                last_print = now;
+        // Process EMG data
+        EMG_Control_Process();
+        
+        uint32_t now = HAL_GetTick();
+        
+        // Heartbeat LED - faster blink when active
+        int last_idx = (SAMPLES - 1) * ADC_CHANNELS;
+        uint8_t is_active = 0;
+        for (int i = 0; i < 4; i++) {
+            if (adc_buffer[last_idx + i] > 600) {
+                is_active = 1;
+                break;
             }
-            
-            data_rdy_f = false;
         }
         
-        // toggle green LED for activity
-        static uint32_t last_led = 0;
-        if (HAL_GetTick() - last_led >= 500) {
-            HAL_GPIO_TogglePin(USER_LED_GREEN_GPIO_Port, USER_LED_GREEN_Pin);
-            last_led = HAL_GetTick();
+        uint32_t heartbeat_interval = is_active ? 100 : 500;
+        if (now - last_heartbeat >= heartbeat_interval) {
+            HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+            last_heartbeat = now;
         }
         
+        HAL_Delay(1);
     }
 }
 

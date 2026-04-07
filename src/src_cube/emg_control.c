@@ -1,157 +1,86 @@
-#include "emg_control.h"
 #include "main.h"
+#include "emg_control.h"
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+#include <math.h>
 
-extern ADC_HandleTypeDef hadc2;
+// Circular buffer for EMG data (4 channels)
+static uint16_t emg_circular_buffer[EMG_BUFFER_SIZE][4];
+static uint16_t buffer_write_idx = 0;
+static uint16_t buffer_filled = 0;
 
-typedef struct {
-    uint16_t buf[EMG_WINDOW_SIZE];
-    uint32_t sum;
-    uint16_t filtered;
-    uint16_t index;
-    uint8_t full;
-    uint16_t baseline;
-    uint16_t threshold;
-    uint8_t activated;
-    uint8_t activation_count;  
-    uint8_t deactivation_count;
-    uint8_t channel_id;
-} EMG_Filter_t;
+// Prediction smoothing
+static uint8_t prediction_history[PREDICTION_HISTORY];
+static uint8_t history_idx = 0;
+static uint8_t history_filled = 0;
 
-// 4-channel EMG filters
-EMG_Filter_t channels[4];
+// State management
+static ProsthesisState_t current_state = STATE_IDLE;
+static uint32_t last_state_change_time = 0;
+static uint32_t last_activity_time = 0;
 
-// Servo states (5 fingers)
-ServoState_t servo_states[5] = {
-    {0, 0, 0, 150},      // thumb
-    {0, 0, 0, 180},      // index
-    {10, 10, 10, 170},   // middle
-    {20, 20, 20, 180},   // ring
-    {0, 0, 0, 120}       // pinky
-};
-
-static uint8_t current_state = STATE_IDLE;
-static uint32_t state_change_time = 0;
-static uint32_t last_emg_activity = 0;
-static uint8_t debug_mode = 0;  // 0=normal, 1=raw data output
-static uint32_t last_raw_print = 0;
+// Debug mode
+static uint8_t debug_mode = 1;
+static uint32_t last_debug_print = 0;
 static uint32_t frame_count = 0;
 
-// Filter update with moving average
-static void update_filter(EMG_Filter_t *filter, uint16_t raw_value) {
-    uint16_t i = filter->index;
-    uint16_t old_value = filter->buf[i];
-    filter->buf[i] = raw_value;
-    
-    if (filter->full) {
-        filter->sum += raw_value - old_value;
-    } else {
-        filter->sum += raw_value;
-    }
-    
-    uint16_t count = filter->full ? EMG_WINDOW_SIZE : (filter->index + 1);
-    filter->filtered = filter->sum / count;
-    
-    filter->index = (filter->index + 1) % EMG_WINDOW_SIZE;
-    if (filter->index == 0) filter->full = 1;
-}
+// Baseline calibration values
+static uint16_t baseline[4] = {0};
+static uint16_t threshold[4] = {0};
 
-// Update baseline during inactivity
-static void update_baseline(EMG_Filter_t *filter) {
-    static uint32_t last_update[4] = {0};
-    
-    if (!filter->activated && (HAL_GetTick() - last_update[filter->channel_id] > 3000)) {
-        filter->baseline = (filter->baseline * 15 + filter->filtered) / 16;
-        last_update[filter->channel_id] = HAL_GetTick();
-    }
-}
+static const GestureAngles_t gesture_angles[] = {
+    /* STATE_ROCK       */ {150, 180, 170, 180, 120},
+    /* STATE_SCISSORS   */ {150, 0,   0,   180, 120},
+    /* STATE_PAPER      */ {0,   0,   10,  20,   0},
+    /* STATE_FUCK       */ {150, 180, 0,   180, 120},
+    /* STATE_THREE      */ {150, 0,   0,   0,   120},
+    /* STATE_FOUR       */ {0,   0,   10,  20,   0},
+    /* STATE_GOOD       */ {0,   180, 170, 180, 120},
+    /* STATE_OKAY       */ {60,  60,  170, 180, 120},
+    /* STATE_FINGER_GUN */ {0,   0,   170, 180, 120},
+    /* STATE_REST       */ {0,   0,   10,  20,   0}
+};
 
-// Detect muscle activation with hysteresis
-static void detect_activation(EMG_Filter_t *filter) {
-    int16_t signal_above = (int16_t)filter->filtered - (int16_t)filter->baseline;
-    
-    if (signal_above > filter->threshold + EMG_HYSTERESIS) {
-        filter->activation_count++;
-        filter->deactivation_count = 0;
-        
-        if (filter->activation_count >= 3) {
-            filter->activated = 1;
-        }
-    } 
-    else if (signal_above < filter->threshold - EMG_HYSTERESIS) {
-        filter->deactivation_count++;
-        filter->activation_count = 0;
-        
-        if (filter->deactivation_count >= 5) {
-            filter->activated = 0;
-        }
-    } else {
-        filter->activation_count = 0;
-        filter->deactivation_count = 0;
-    }
-}
-
-// Determine which channels are active
-static uint8_t get_active_pattern(void) {
-    uint8_t pattern = 0;
-    for (int i = 0; i < 4; i++) {
-        if (channels[i].activated) {
-            pattern |= (1 << i);
-        }
-    }
-    return pattern;
-}
-
-// Map activation pattern to hand state
-static uint8_t pattern_to_state(uint8_t pattern) {
-    switch(pattern) {
-        case 0x00: return STATE_IDLE;      // No activation
-        case 0x01:                         // CH1 only - close all
-        case 0x02:                         // CH2 only - close all (alternate)
-            return STATE_CLOSE;
-        case 0x04: return STATE_OPEN;       // CH3 only - open all
-        case 0x08: return STATE_THUMB;      // CH4 only - thumb
-        case 0x03: return STATE_PINCH;      // CH1+CH2 - pinch grip
-        case 0x09: return STATE_INDEX;      // CH1+CH4 - index
-        case 0x0A: return STATE_MIDDLE;     // CH2+CH4 - middle
-        default: return STATE_IDLE;
-    }
-}
+static const char* state_names[] = {
+    "ROCK", "SCISSORS", "PAPER", "FUCK", "THREE",
+    "FOUR", "GOOD", "OKAY", "FINGER_GUN", "REST"
+};
 
 void EMG_Control_Init(void) {
-    // Initialize all 4 channels
-    for (int i = 0; i < 4; i++) {
-        channels[i].channel_id = i;
-        channels[i].threshold = EMG_THRESHOLD_BASE + (i * 50);
-        channels[i].baseline = 500 + (i * 30);
-        
-        memset(channels[i].buf, 0, sizeof(channels[i].buf));
-        channels[i].sum = 0;
-        channels[i].filtered = 0;
-        channels[i].index = 0;
-        channels[i].full = 0;
-        channels[i].activated = 0;
-        channels[i].activation_count = 0;
-        channels[i].deactivation_count = 0;
+    memset(emg_circular_buffer, 0, sizeof(emg_circular_buffer));
+    buffer_write_idx = 0;
+    buffer_filled = 0;
+    
+    for (int i = 0; i < PREDICTION_HISTORY; i++) {
+        prediction_history[i] = STATE_IDLE;
     }
+    history_idx = 0;
+    history_filled = 0;
     
     current_state = STATE_IDLE;
-    state_change_time = HAL_GetTick();
-    last_emg_activity = HAL_GetTick();
-    debug_mode = 0;
+    last_state_change_time = HAL_GetTick();
+    last_activity_time = HAL_GetTick();
     
-    printf("\r\n=== 4-CHANNEL EMG CONTROL ===\r\n");
-    printf("Thresholds: CH1=%d, CH2=%d, CH3=%d, CH4=%d\r\n", 
-           channels[0].threshold, channels[1].threshold, 
-           channels[2].threshold, channels[3].threshold);
-    printf("Hysteresis: %d, Debounce: %dms\r\n", EMG_HYSTERESIS, STATE_DEBOUNCE_MS);
-    printf("Output format (debug ON): CH1,CH2,CH3,CH4\r\n");
+    ann_init();
+    
+    const GestureAngles_t* idle_angles = &gesture_angles[STATE_REST];
+    SetServo1Angle(idle_angles->thumb_angle);
+    SetServo2Angle(idle_angles->index_angle);
+    SetServo3Angle(idle_angles->middle_angle);
+    SetServo4Angle(idle_angles->ring_angle);
+    SetServo5Angle(idle_angles->pinky_angle);
+    
+    printf("\r\n=== 4-CHANNEL EMG ANN CONTROL ===\r\n");
+    printf("Window: %d samples, Step: %d samples, History: %d\r\n", 
+           EMG_WINDOW_SIZE, EMG_WINDOW_STEP, PREDICTION_HISTORY);
+    printf("ANN Input: %d features, Output: %d classes\r\n", ANN_INPUT_SIZE, ANN_NUM_CLASSES);
+    printf("Min confidence: %.2f, Activity timeout: %dms\r\n", MIN_CONFIDENCE, ACTIVITY_TIMEOUT_MS);
 }
 
 void EMG_AutoCalibrate(void) {
     printf("\r\n=== AUTO-CALIBRATION ===\r\n");
-    printf("Relax for 3 seconds...\r\n");
+    printf("Relax your hand for 3 seconds...\r\n");
     
     uint32_t start_time = HAL_GetTick();
     uint32_t sums[4] = {0};
@@ -160,10 +89,9 @@ void EMG_AutoCalibrate(void) {
     while (HAL_GetTick() - start_time < 3000) {
         if (data_rdy_f) {
             int last_idx = (SAMPLES - 1) * ADC_CHANNELS;
-            sums[0] += adc_buffer[last_idx + 0];
-            sums[1] += adc_buffer[last_idx + 1];
-            sums[2] += adc_buffer[last_idx + 2];
-            sums[3] += adc_buffer[last_idx + 3];
+            for (int i = 0; i < 4; i++) {
+                sums[i] += adc_buffer[last_idx + i];
+            }
             count++;
             data_rdy_f = false;
         }
@@ -172,32 +100,105 @@ void EMG_AutoCalibrate(void) {
     
     if (count > 0) {
         for (int i = 0; i < 4; i++) {
-            channels[i].baseline = sums[i] / count;
-            channels[i].threshold = channels[i].baseline + 300 + (i * 30);
+            baseline[i] = sums[i] / count;
+            threshold[i] = baseline[i] + 300 + (i * 30);
         }
         
-        printf("Calibrated: ");
-        printf("CH1=%d(+%d), CH2=%d(+%d), ", 
-               channels[0].baseline, channels[0].threshold - channels[0].baseline,
-               channels[1].baseline, channels[1].threshold - channels[1].baseline);
-        printf("CH3=%d(+%d), CH4=%d(+%d)\r\n",
-               channels[2].baseline, channels[2].threshold - channels[2].baseline,
-               channels[3].baseline, channels[3].threshold - channels[3].baseline);
+        printf("Calibration complete:\r\n");
+        printf("  CH1 (FCR): baseline=%d, threshold=%d\r\n", baseline[0], threshold[0]);
+        printf("  CH2 (BR):  baseline=%d, threshold=%d\r\n", baseline[1], threshold[1]);
+        printf("  CH3 (FCU): baseline=%d, threshold=%d\r\n", baseline[2], threshold[2]);
+        printf("  CH4 (FDS): baseline=%d, threshold=%d\r\n", baseline[3], threshold[3]);
     }
 }
 
-void EMG_PrintRawData(void) {
-    int last_idx = (SAMPLES - 1) * ADC_CHANNELS;
+static void add_to_buffer(uint16_t ch0, uint16_t ch1, uint16_t ch2, uint16_t ch3) {
+    emg_circular_buffer[buffer_write_idx][0] = ch0;
+    emg_circular_buffer[buffer_write_idx][1] = ch1;
+    emg_circular_buffer[buffer_write_idx][2] = ch2;
+    emg_circular_buffer[buffer_write_idx][3] = ch3;
     
-    printf("%d,%d,%d,%d\r\n",
-           adc_buffer[last_idx + 0],
-           adc_buffer[last_idx + 1],
-           adc_buffer[last_idx + 2],
-           adc_buffer[last_idx + 3]);
+    buffer_write_idx++;
+    if (buffer_write_idx >= EMG_BUFFER_SIZE) {
+        buffer_write_idx = 0;
+    }
+    
+    if (buffer_filled < EMG_BUFFER_SIZE) {
+        buffer_filled++;
+    }
+}
+
+static void get_window_data(uint16_t start_idx, uint16_t window_data[][4]) {
+    for (int i = 0; i < EMG_WINDOW_SIZE; i++) {
+        int idx = (start_idx + i) % EMG_BUFFER_SIZE;
+        window_data[i][0] = emg_circular_buffer[idx][0];
+        window_data[i][1] = emg_circular_buffer[idx][1];
+        window_data[i][2] = emg_circular_buffer[idx][2];
+        window_data[i][3] = emg_circular_buffer[idx][3];
+    }
+}
+
+static uint8_t smooth_prediction(uint8_t new_prediction) {
+    prediction_history[history_idx] = new_prediction;
+    history_idx = (history_idx + 1) % PREDICTION_HISTORY;
+    
+    if (history_idx == 0) {
+        history_filled = PREDICTION_HISTORY;
+    } else if (!history_filled && history_idx > history_filled) {
+        history_filled = history_idx;
+    }
+    
+    int votes[STATE_COUNT] = {0};
+    int max_votes = 0;
+    uint8_t best_gesture = current_state;
+    
+    int history_len = history_filled ? PREDICTION_HISTORY : history_idx;
+    for (int i = 0; i < history_len; i++) {
+        uint8_t pred = prediction_history[i];
+        if (pred < STATE_COUNT) {
+            votes[pred]++;
+            if (votes[pred] > max_votes) {
+                max_votes = votes[pred];
+                best_gesture = pred;
+            }
+        }
+    }
+    
+    int required_votes = (PREDICTION_HISTORY / 2) + 1;
+    if (max_votes >= required_votes) {
+        return best_gesture;
+    }
+    return current_state;
+}
+
+static uint8_t detect_activity(void) {
+    int last_idx = (SAMPLES - 1) * ADC_CHANNELS;
+    for (int i = 0; i < 4; i++) {
+        uint16_t raw = adc_buffer[last_idx + i];
+        if (raw > baseline[i] + 100) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void execute_gesture(ProsthesisState_t state) {
+    if (state >= STATE_COUNT) {
+        state = STATE_REST;
+    }
+    
+    const GestureAngles_t* angles = &gesture_angles[state];
+    
+    SetServo1Angle(angles->thumb_angle);
+    SetServo2Angle(angles->index_angle);
+    SetServo3Angle(angles->middle_angle);
+    SetServo4Angle(angles->ring_angle);
+    SetServo5Angle(angles->pinky_angle);
 }
 
 void EMG_Control_Process(void) {
-    static uint32_t last_process = 0;
+    static uint16_t process_counter = 0;
+    static uint32_t debug_counter = 0;
     uint32_t now = HAL_GetTick();
     
     if (!data_rdy_f) {
@@ -205,149 +206,77 @@ void EMG_Control_Process(void) {
     }
     
     int last_idx = (SAMPLES - 1) * ADC_CHANNELS;
+    uint16_t ch0 = adc_buffer[last_idx + 0];
+    uint16_t ch1 = adc_buffer[last_idx + 1];
+    uint16_t ch2 = adc_buffer[last_idx + 2];
+    uint16_t ch3 = adc_buffer[last_idx + 3];
     
-    // update all 4 channels
-    for (int i = 0; i < 4; i++) {
-        update_filter(&channels[i], adc_buffer[last_idx + i]);
-        update_baseline(&channels[i]);
-        detect_activation(&channels[i]);
+    add_to_buffer(ch0, ch1, ch2, ch3);
+    
+    if (buffer_filled >= EMG_WINDOW_SIZE) {
+        if (process_counter >= EMG_WINDOW_STEP) {
+            process_counter = 0;
+            
+            uint16_t window_start = (buffer_write_idx + EMG_BUFFER_SIZE - EMG_WINDOW_SIZE) % EMG_BUFFER_SIZE;
+            uint16_t window_data[EMG_WINDOW_SIZE][4];
+            get_window_data(window_start, window_data);
+            
+            uint8_t prediction = ann_process_window(window_data, EMG_WINDOW_SIZE);
+            float confidence = ann_get_confidence_from_buffer(window_data, EMG_WINDOW_SIZE);
+            uint8_t smoothed = smooth_prediction(prediction);
+            uint8_t is_active = detect_activity();
+            
+            if (is_active) {
+                last_activity_time = now;
+            }
+            
+            // Update state based on prediction
+            if (smoothed != current_state && confidence >= MIN_CONFIDENCE) {
+                if (now - last_state_change_time >= STATE_DEBOUNCE_MS) {
+                    printf("GESTURE: %s -> %s (conf=%.3f)\r\n", 
+                           state_names[current_state], state_names[smoothed], confidence);
+                    current_state = smoothed;
+                    last_state_change_time = now;
+                    execute_gesture(current_state);
+                }
+            } else if (current_state != STATE_REST && !is_active && (now - last_activity_time > ACTIVITY_TIMEOUT_MS)) {
+                printf("GESTURE: %s -> REST (timeout)\r\n", state_names[current_state]);
+                current_state = STATE_REST;
+                last_state_change_time = now;
+                execute_gesture(STATE_REST);
+            }
+            
+            // Debug print every 20 frames
+            debug_counter++;
+            if (debug_counter % 20 == 0) {
+                printf("DEBUG: ADC: %d,%d,%d,%d | Pred: %d (%s) | Conf: %.3f | Active: %d\r\n",
+                       ch0, ch1, ch2, ch3, prediction, ann_get_class_name(prediction), confidence, is_active);
+            }
+        }
+        process_counter++;
     }
     
     frame_count++;
-    
-    // state machine - update at ~1kHz rate
-    if (now - last_process >= 1) {  // 1ms = 1000Hz
-        last_process = now;
-        
-        uint8_t active_pattern = get_active_pattern();
-        uint8_t new_state = pattern_to_state(active_pattern);
-        
-        // check for EMG activity timeout
-        uint8_t any_activity = 0;
-        for (int i = 0; i < 4; i++) {
-            if (channels[i].activated) {
-                any_activity = 1;
-                last_emg_activity = now;
-            }
-        }
-        
-        if (!any_activity && (now - last_emg_activity > 2000)) {
-            new_state = STATE_IDLE;
-        }
-        
-        // state change with debounce
-        if (new_state != current_state) {
-            if (now - state_change_time > STATE_DEBOUNCE_MS) {
-                printf("STATE: ");
-                switch(new_state) {
-                    case STATE_CLOSE: printf("CLOSE ALL"); break;
-                    case STATE_OPEN: printf("OPEN ALL"); break;
-                    case STATE_THUMB: printf("THUMB"); break;
-                    case STATE_INDEX: printf("INDEX"); break;
-                    case STATE_MIDDLE: printf("MIDDLE"); break;
-                    case STATE_RING: printf("RING"); break;
-                    case STATE_PINKY: printf("PINKY"); break;
-                    case STATE_PINCH: printf("PINCH"); break;
-                    default: printf("IDLE"); break;
-                }
-                printf(" (Pattern: 0x%X)\r\n", active_pattern);
-                
-                current_state = new_state;
-                state_change_time = now;
-            }
-        }
-        
-        // apply state to servos
-        switch(current_state) {
-            case STATE_CLOSE:
-                // all fingers close
-                for (int i = 0; i < 5; i++) {
-                    servo_states[i].target_angle = servo_states[i].max_angle;
-                }
-                break;
-                
-            case STATE_OPEN:
-                // all fingers open
-                for (int i = 0; i < 5; i++) {
-                    servo_states[i].target_angle = servo_states[i].min_angle;
-                }
-                break;
-                
-            case STATE_THUMB:
-                // thumb only
-                servo_states[0].target_angle = 90;
-                for (int i = 1; i < 5; i++) {
-                    servo_states[i].target_angle = servo_states[i].min_angle;
-                }
-                break;
-                
-            case STATE_INDEX:
-                // tndex only
-                servo_states[1].target_angle = 90;
-                servo_states[0].target_angle = servo_states[0].min_angle;
-                for (int i = 2; i < 5; i++) {
-                    servo_states[i].target_angle = servo_states[i].min_angle;
-                }
-                break;
-                
-            case STATE_PINCH:
-                // thumb + index pinch
-                servo_states[0].target_angle = 90;
-                servo_states[1].target_angle = 90;
-                for (int i = 2; i < 5; i++) {
-                    servo_states[i].target_angle = servo_states[i].min_angle;
-                }
-                break;
-                
-            case STATE_IDLE:
-            default:
-                // slowly return to open position
-                for (int i = 0; i < 5; i++) {
-                    if (servo_states[i].target_angle > servo_states[i].min_angle) {
-                        servo_states[i].target_angle -= 2;
-                    }
-                    if (servo_states[i].target_angle < servo_states[i].min_angle) {
-                        servo_states[i].target_angle = servo_states[i].min_angle;
-                    }
-                }
-                break;
-        }
-        
-        // apply servo commands
-        for (int i = 0; i < 5; i++) {
-            // smooth movement
-            if (servo_states[i].current_angle < servo_states[i].target_angle) {
-                servo_states[i].current_angle += 2;
-                if (servo_states[i].current_angle > servo_states[i].target_angle) {
-                    servo_states[i].current_angle = servo_states[i].target_angle;
-                }
-            } else if (servo_states[i].current_angle > servo_states[i].target_angle) {
-                servo_states[i].current_angle -= 2;
-                if (servo_states[i].current_angle < servo_states[i].target_angle) {
-                    servo_states[i].current_angle = servo_states[i].target_angle;
-                }
-            }
-        }
-        
-        SetServo1Angle(servo_states[0].current_angle);
-        SetServo2Angle(servo_states[1].current_angle);
-        SetServo3Angle(servo_states[2].current_angle);
-        SetServo4Angle(servo_states[3].current_angle);
-        SetServo5Angle(servo_states[4].current_angle);
-    }
-    
-    static uint32_t last_print = 0;
-    if (now - last_print >= 1) {  // 1ms = 1000Hz max
-        int last_idx = (SAMPLES - 1) * ADC_CHANNELS;
-        
-        printf("%d,%d,%d,%d\r\n",
-            adc_buffer[last_idx + 0],
-            adc_buffer[last_idx + 1],
-            adc_buffer[last_idx + 2],
-            adc_buffer[last_idx + 3]);
-        
-        last_print = now;
-    }
-    
     data_rdy_f = false;
+}
+
+void EMG_PrintRawData(void) {
+    int last_idx = (SAMPLES - 1) * ADC_CHANNELS;
+    printf("%d,%d,%d,%d\r\n",
+           adc_buffer[last_idx + 0],
+           adc_buffer[last_idx + 1],
+           adc_buffer[last_idx + 2],
+           adc_buffer[last_idx + 3]);
+}
+
+void EMG_SetDebugMode(uint8_t enable) {
+    debug_mode = enable;
+    printf("Debug mode: %s\r\n", enable ? "ON" : "OFF");
+}
+
+const char* EMG_GetStateName(ProsthesisState_t state) {
+    if (state < STATE_COUNT) {
+        return state_names[state];
+    }
+    return "UNKNOWN";
 }
