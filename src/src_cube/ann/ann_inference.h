@@ -8,12 +8,10 @@ extern "C" {
 #include <stdint.h>
 #include <math.h>
 
-// Configuration for CLEAN MODEL (10 classes including REST)
 #define ANN_INPUT_SIZE     16      // 4 channels * 4 features (RMS, MAV, VAR, WL)
 #define ANN_WINDOW_SIZE    50
-#define ANN_NUM_CLASSES    10      // rock, scissors, paper, fuck, three, four, good, okay, finger-gun, rest
+#define ANN_NUM_CLASSES    10
 
-// Function prototypes
 void ann_extract_features(const uint16_t raw_data[][4], uint16_t window_size, float* features);
 void ann_forward(const float* input, float* output);
 uint8_t ann_predict(const float* input);

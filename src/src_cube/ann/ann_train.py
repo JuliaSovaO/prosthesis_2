@@ -1,8 +1,3 @@
-"""
-ANN Training for Balanced EMG Data (10 gestures, ~27k samples each)
-Trains on the cleaned and balanced data from 0704 folder
-"""
-
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
@@ -16,38 +11,31 @@ import os
 tf.keras.backend.set_floatx('float32')
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
-# ============================================
-# CONFIGURATION
-# ============================================
 WINDOW_SIZE = 50      # 50ms window at ~1000Hz
 WINDOW_STEP = 25      # 50% overlap
 FEATURES_PER_CHANNEL = 4  # RMS, MAV, VAR, WL
 INPUT_SIZE = 16       # 4 channels * 4 features
 
-# Gesture mapping (order from your data)
 GESTURE_ORDER = ['finger-gun', 'four', 'fuck', 'good', 'okay', 
                  'paper', 'rest', 'rock', 'scissors', 'three']
 
 def load_balanced_data(csv_path):
-    """Load the processed balanced data"""
     print(f"Loading data from {csv_path}...")
     
     df = pd.read_csv(csv_path)
     print(f"Total rows: {len(df)}")
     print(f"Columns: {df.columns.tolist()}")
     
-    # Extract EMG channels (s1, s2, s3, s4)
     X = df[['s1', 's2', 's3', 's4']].values.astype(np.float32)
     
-    # Extract labels
     y = df['gesture'].values
     
     # Encode labels
     label_encoder = LabelEncoder()
-    label_encoder.fit(GESTURE_ORDER)  # Fixed order for consistency
+    label_encoder.fit(GESTURE_ORDER)
     y_encoded = label_encoder.transform(y)
     
-    print(f"\nGesture classes (order matters for STM32):")
+    print(f"\nGesture classes:")
     for i, name in enumerate(label_encoder.classes_):
         count = np.sum(y_encoded == i)
         print(f"  {i}: {name} ({count} samples, {count/1000:.1f}s)")
@@ -55,9 +43,6 @@ def load_balanced_data(csv_path):
     return X, y_encoded, label_encoder
 
 def extract_features_sliding_window(X, y, window_size=50, step=25):
-    """
-    Extract features using sliding window
-    """
     n_samples, n_channels = X.shape
     features = []
     labels = []
@@ -72,7 +57,6 @@ def extract_features_sliding_window(X, y, window_size=50, step=25):
         end = start + window_size
         window = X[start:end, :]
         
-        # Get dominant label in this window
         window_labels = y[start:end]
         label = np.bincount(window_labels).argmax()
         
@@ -114,7 +98,6 @@ def extract_features_sliding_window(X, y, window_size=50, step=25):
     return np.array(features, dtype=np.float32), np.array(labels, dtype=np.int32)
 
 def create_model(input_dim, num_classes):
-    """Create ANN model for 10-class gesture classification"""
     model = models.Sequential([
         layers.Input(shape=(input_dim,)),
         
@@ -135,8 +118,6 @@ def create_model(input_dim, num_classes):
     return model
 
 def generate_c_headers(model, label_encoder, scaler, output_dir='src/src_cube/ann_balanced'):
-    """Generate C header files for STM32"""
-    
     os.makedirs(output_dir, exist_ok=True)
     
     # Get weights from Dense layers only
@@ -268,10 +249,9 @@ def generate_c_headers(model, label_encoder, scaler, output_dir='src/src_cube/an
             f.write('\n')
         f.write('};\n')
     
-    print(f"\n✅ Generated C headers in {output_dir}/")
+    print(f"\nGenerated C headers in {output_dir}/")
 
 def plot_training_history(history, save_path='training_history_balanced.png'):
-    """Plot training history"""
     try:
         import matplotlib.pyplot as plt
         
@@ -296,7 +276,7 @@ def plot_training_history(history, save_path='training_history_balanced.png'):
         plt.tight_layout()
         plt.savefig(save_path, dpi=150)
         plt.show()
-        print(f"✅ Training history saved to {save_path}")
+        print(f"Training history saved to {save_path}")
     except Exception as e:
         print(f"Could not plot: {e}")
 
@@ -368,7 +348,7 @@ def main():
     history = model.fit(
         X_train_scaled, y_train,
         epochs=150,
-        batch_size=128,  # Larger batch for more data
+        batch_size=128,
         validation_split=0.2,
         callbacks=callbacks_list,
         verbose=1
@@ -428,7 +408,7 @@ def main():
     plot_training_history(history, 'training_history_balanced.png')
     
     print("\n" + "="*60)
-    print("✅ TRAINING COMPLETE!")
+    print("TRAINING COMPLETE!")
     print("="*60)
     print("\nGenerated files:")
     print("  - src/src_cube/ann_balanced/weights.h")
@@ -436,10 +416,6 @@ def main():
     print("  - emg_ann_model_balanced.keras")
     print("  - scaler_params_balanced.json")
     print(f"\nFinal test accuracy: {accuracy:.4f} ({accuracy*100:.1f}%)")
-    print("\nTo use this model on STM32:")
-    print("  1. Copy weights.h and weights.c from ann_balanced/ to src/src_cube/ann/")
-    print("  2. Update ANN_NUM_CLASSES to 10 in ann_inference.h")
-    print("  3. Rebuild and upload")
 
 if __name__ == "__main__":
     main()

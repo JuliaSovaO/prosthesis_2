@@ -47,7 +47,6 @@ int main(void)
     printf("    EMG ANN PROSTHESIS CONTROL v2.0\r\n");
     printf("    STM32F723E-DISCOVERY\r\n");
     printf("========================================\r\n");
-    printf("ADC Sampling Rate: ~31,250 Hz\r\n");
     printf("ANN Input: %d features\r\n", ANN_INPUT_SIZE);
     printf("ANN Output: %d gestures\r\n", ANN_NUM_CLASSES);
     printf("Window: %d ms, Step: %d ms\r\n", 
@@ -66,10 +65,7 @@ int main(void)
         Error_Handler();
     }
     
-    // Initialize EMG control (includes ANN)
     EMG_Control_Init();
-    
-    // Auto-calibrate baseline
     EMG_AutoCalibrate();
     
     // Clear ADC buffer
@@ -92,7 +88,6 @@ int main(void)
 
     while (1)
     {
-        // Process EMG data
         EMG_Control_Process();
         
         uint32_t now = HAL_GetTick();

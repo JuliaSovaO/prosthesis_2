@@ -1,13 +1,8 @@
-"""
-Label EMG data using manually identified gesture ranges
-"""
-
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 
-# Gesture mapping
 gesture_map = {
     "rock": 0, "scissors": 1, "paper": 2, "fuck": 3,
     "three": 4, "four": 5, "good": 6, "okay": 7,
@@ -16,7 +11,6 @@ gesture_map = {
 
 gesture_names = {v: k for k, v in gesture_map.items()}
 
-# YOUR GESTURE RANGES - based on visual inspection
 gesture_ranges = [
     (500, 2700, 'rest'),
     
@@ -59,20 +53,14 @@ gesture_ranges = [
     (66700, 67500, 'rest'),
 ]
 
-def load_and_label_data(data_path="data/all_g.txt"):
-    """Load data and apply labels based on ranges"""
-    
-    # Load data
+def load_and_label_data(data_path="data/all_g.txt"):   
     df = pd.read_csv(data_path, header=None, names=['ch0', 'ch1', 'ch2', 'ch3'])
     print(f"Loaded {len(df)} samples ({len(df)/1000:.1f} seconds)")
     
-    # Initialize all labels as -1 (unlabeled)
     labels = np.full(len(df), -1, dtype=int)
     
-    # Apply labels from ranges
     print("\nApplying labels:")
     for start, end, gesture_name in gesture_ranges:
-        # Ensure ranges are within bounds
         start = max(0, start)
         end = min(len(df), end)
         
@@ -80,16 +68,13 @@ def load_and_label_data(data_path="data/all_g.txt"):
         labels[start:end] = gesture_code
         print(f"  {gesture_name:12} | samples {start:6d} - {end:6d} | {end-start:5d} samples ({(end-start)/1000:.2f}s)")
     
-    # Everything unlabeled becomes 'rest'
     unlabeled = np.sum(labels == -1)
     if unlabeled > 0:
-        print(f"\n⚠️ {unlabeled} samples were unlabeled - setting to 'rest'")
+        print(f"\n{unlabeled} samples were unlabeled - setting to 'rest'")
         labels[labels == -1] = gesture_map['rest']
     
-    # Add labels to dataframe
     df['gesture'] = labels
     
-    # Verify labeling
     print("\n" + "="*60)
     print("FINAL LABEL DISTRIBUTION:")
     print("="*60)
@@ -101,10 +86,8 @@ def load_and_label_data(data_path="data/all_g.txt"):
     return df
 
 def visualize_labeled_data(df, save_dir="plots"):
-    """Create visualization of labeled data"""
     Path(save_dir).mkdir(exist_ok=True)
     
-    # Create combined signal
     combined = (df['ch1'].values + df['ch2'].values) / 2
     
     colors = {
@@ -176,41 +159,23 @@ def visualize_labeled_data(df, save_dir="plots"):
     plt.tight_layout()
     plt.savefig(f"{save_dir}/labeled_data_verification.png", dpi=150)
     plt.show()
-    print(f"✅ Saved: {save_dir}/labeled_data_verification.png")
+    print(f"Saved: {save_dir}/labeled_data_verification.png")
 
 def save_labeled_data(df, output_path="data/all_data_labeled.csv"):
-    """Save labeled data to CSV WITHOUT headers"""
-    # Save without header to match training script expectation
     df[['ch0', 'ch1', 'ch2', 'ch3', 'gesture']].to_csv(output_path, index=False, header=False)
-    print(f"\n✅ Labeled data saved to: {output_path}")
+    print(f"\nLabeled data saved to: {output_path}")
     
-    # Also save a sample for quick testing
     sample_size = min(50000, len(df))
     sampled = df[['ch0', 'ch1', 'ch2', 'ch3', 'gesture']].sample(n=sample_size, random_state=42)
     sampled.to_csv("data/all_data_labeled_sample.csv", index=False, header=False)
-    print(f"✅ Sample saved to: data/all_data_labeled_sample.csv")
+    print(f"Sample saved to: data/all_data_labeled_sample.csv")
 
 def main():
     print("=== EMG Data Labeling with Manual Ranges ===\n")
     
-    # Load and label data
-    df = load_and_label_data("data/all_g.txt")
-    
-    # Visualize results
+    df = load_and_label_data("data/all_g.txt")    
     visualize_labeled_data(df)
-    
-    # Save labeled data
     save_labeled_data(df)
-    
-    print("\n" + "="*60)
-    print("NEXT STEPS:")
-    print("="*60)
-    print("\n1. Review the verification plot 'plots/labeled_data_verification.png'")
-    print("2. If labels look correct, train the ANN model:")
-    print("\n   python src/src_cube/ann/ann_train_realistic.py")
-    print("\n   Make sure to update the data path in the training script to:")
-    print("   data_path = 'data/all_data_labeled.csv'")
-    print("\n3. After training, upload the new model to STM32")
 
 if __name__ == "__main__":
     main()

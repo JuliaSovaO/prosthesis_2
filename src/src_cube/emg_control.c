@@ -5,32 +5,27 @@
 #include <stdlib.h>
 #include <math.h>
 
-// Circular buffer for EMG data (4 channels)
 static uint16_t emg_circular_buffer[EMG_BUFFER_SIZE][4];
 static uint16_t buffer_write_idx = 0;
 static uint16_t buffer_filled = 0;
 
-// Prediction smoothing
 static uint8_t prediction_history[PREDICTION_HISTORY];
 static uint8_t history_idx = 0;
 static uint8_t history_filled = 0;
 
-// State management
 static ProsthesisState_t current_state = STATE_IDLE;
 static uint32_t last_state_change_time = 0;
 static uint32_t last_activity_time = 0;
-static uint32_t last_gesture_time = 0;  // Track last gesture change for servo protection
+static uint32_t last_gesture_time = 0;
 
 // Debug mode
 static uint8_t debug_mode = 1;
 static uint32_t last_debug_print = 0;
 static uint32_t frame_count = 0;
 
-// Baseline calibration values
 static uint16_t baseline[4] = {0};
 static uint16_t threshold[4] = {0};
 
-// Servo angles for each gesture
 static const GestureAngles_t gesture_angles[] = {
     /* ROCK (fist - all closed) */
     {180, 180, 130, 180, 180},
@@ -82,7 +77,7 @@ void EMG_Control_Init(void) {
     current_state = STATE_IDLE;
     last_state_change_time = HAL_GetTick();
     last_activity_time = HAL_GetTick();
-    last_gesture_time = HAL_GetTick();  // Initialize gesture timer
+    last_gesture_time = HAL_GetTick();
     
     ann_init();
     
@@ -260,9 +255,8 @@ void EMG_Control_Process(void) {
                 last_activity_time = now;
             }
             
-            // State change with servo protection - minimum 5 seconds between changes
+            // State change with servo protection
             if (smoothed != current_state && confidence >= MIN_CONFIDENCE) {
-                // Check if enough time has passed since last gesture change
                 if (now - last_gesture_time >= MIN_GESTURE_INTERVAL_MS) {
                     if (now - last_state_change_time >= STATE_DEBOUNCE_MS) {
                         printf("GESTURE: %s -> %s (conf=%.3f)\r\n", 
@@ -273,7 +267,6 @@ void EMG_Control_Process(void) {
                         execute_gesture(current_state);
                     }
                 } else {
-                    // Print warning occasionally (every 2 seconds max)
                     static uint32_t last_warning = 0;
                     if (now - last_warning > 2000) {
                         printf("WARNING: Gesture change blocked - only %d ms since last change (min %d ms)\r\n",
@@ -282,11 +275,9 @@ void EMG_Control_Process(void) {
                     }
                 }
             } else if (current_state != STATE_REST && !is_active && (now - last_activity_time > ACTIVITY_TIMEOUT_MS)) {
-                // Return to rest - this is allowed anytime (doesn't count as gesture change for servo protection)
                 printf("GESTURE: %s -> REST (timeout)\r\n", state_names[current_state]);
                 current_state = STATE_REST;
                 last_state_change_time = now;
-                // Note: last_gesture_time NOT updated here - returning to rest is safe
                 execute_gesture(STATE_REST);
             }
             

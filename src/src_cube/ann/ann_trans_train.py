@@ -1,8 +1,3 @@
-"""
-ANN Training for EMG - Gestures Only (Excluding Rest)
-This will train on balanced gesture data only
-"""
-
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
@@ -17,7 +12,6 @@ tf.keras.backend.set_floatx('float32')
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 def load_and_prepare_data(csv_path):
-    """Load EMG data and filter out rest samples"""
     df = pd.read_csv(csv_path, header=None)
     X = df.iloc[:, :4].values.astype(np.float32)
     y = df.iloc[:, 4].values.astype(np.int32)
@@ -39,7 +33,6 @@ def load_and_prepare_data(csv_path):
     label_encoder = LabelEncoder()
     y_encoded = label_encoder.fit_transform(y)
     
-    # Update class names
     label_encoder.classes_ = np.array([gesture_names[int(c)] for c in unique_gestures])
     
     print("\nGesture classes (9 gestures total):")
@@ -49,7 +42,6 @@ def load_and_prepare_data(csv_path):
     return X, y_encoded, label_encoder
 
 def extract_features_simple(X, y, window_size=50, step=25):
-    """Extract time-domain features"""
     n_samples, n_channels = X.shape
     features = []
     labels = []
@@ -84,7 +76,6 @@ def extract_features_simple(X, y, window_size=50, step=25):
     return np.array(features, dtype=np.float32), np.array(labels, dtype=np.int32)
 
 def create_model(input_dim, num_classes):
-    """Create model for gesture classification"""
     model = models.Sequential([
         layers.Input(shape=(input_dim,)),
         layers.Dense(64, activation='relu'),
@@ -172,11 +163,9 @@ def main():
     # Generate C headers
     generate_c_headers(model, label_encoder, scaler)
     
-    print(f"\n✅ Final test accuracy: {acc:.4f} ({acc*100:.1f}%)")
+    print(f"\nFinal test accuracy: {acc:.4f} ({acc*100:.1f}%)")
 
 def generate_c_headers(model, label_encoder, scaler):
-    """Generate clean C headers"""
-    
     weights = []
     biases = []
     for layer in model.layers:
@@ -297,7 +286,7 @@ def generate_c_headers(model, label_encoder, scaler):
             f.write('\n')
         f.write('};\n')
     
-    print("\n✅ Generated C headers in src/src_cube/ann/")
+    print("\nGenerated C headers in src/src_cube/ann/")
 
 if __name__ == "__main__":
     main()

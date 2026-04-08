@@ -30,7 +30,7 @@ void TestIndividualFingers(void);
 #define I2C2_SDA_Pin        GPIO_PIN_5
 #define I2C2_SDA_GPIO_Port  GPIOH
 
-// USART6 for built-in Virtual COM Port (connected to ST-LINK)
+// USART6 for built-in Virtual COM Port (ST-LINK)
 #define USART6_TX_Pin        GPIO_PIN_6
 #define USART6_TX_GPIO_Port  GPIOC
 #define USART6_RX_Pin        GPIO_PIN_7

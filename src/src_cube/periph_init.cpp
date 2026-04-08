@@ -168,7 +168,6 @@ void MX_ADC2_Init(void)
     sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES;
     sConfig.Offset = 0;
     
-    // FIXED: Swap Rank 2 and Rank 3 based on test results
     // Channel 1: A0 (PC0)
     sConfig.Channel = ADC_CHANNEL_10;
     sConfig.Rank = 1;
@@ -217,8 +216,6 @@ void HAL_ADC_MspInit(ADC_HandleTypeDef* adcHandle)
         GPIO_InitStruct.Pin = GPIO_PIN_4;
         HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-        // DMA clock is already enabled in MX_DMA_Init
-        // Just set the NVIC for the correct stream
         HAL_NVIC_SetPriority(DMA2_Stream2_IRQn, 0, 0);
         HAL_NVIC_EnableIRQ(DMA2_Stream2_IRQn);
     }
@@ -228,7 +225,6 @@ void MX_DMA_Init(void)
 {
     __HAL_RCC_DMA2_CLK_ENABLE();
 
-    // IMPORTANT: For ADC2 on STM32F723, use DMA2 Stream2 with Channel 1
     hdma_adc2.Instance = DMA2_Stream2;
     hdma_adc2.Init.Channel = DMA_CHANNEL_1;
     hdma_adc2.Init.Direction = DMA_PERIPH_TO_MEMORY;

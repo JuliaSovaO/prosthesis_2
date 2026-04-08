@@ -4,10 +4,7 @@
 #include <math.h>
 #include <stdio.h>
 
-// Forward pass using actual trained weights
-void ann_forward(const float* input, float* output) {
-    // Clean model architecture: 16 inputs -> 128 -> 64 -> 32 -> 10 outputs
-    
+void ann_forward(const float* input, float* output) {    
     // Layer 1: input (16) -> hidden1 (128)
     float hidden1[128];
     for (int i = 0; i < 128; i++) {
@@ -64,10 +61,6 @@ void ann_forward(const float* input, float* output) {
 }
 
 void ann_normalize_features(float* features) {
-    // CRITICAL FIX: Scale to match training data range
-    // Your real-time data: CH0~3600, CH1~100-200, CH2~100-500, CH3~200-600
-    // Training data had CH2 up to 3000+
-    
     for (int i = 0; i < ANN_INPUT_SIZE; i++) {
         // Use the stored mean/std from training if available
         if (ann_input_std[i] > 1e-6f) {
@@ -76,7 +69,7 @@ void ann_normalize_features(float* features) {
             features[i] = 0.0f;
         }
         
-        // Debug: print first few normalized features
+        // Debug
         static int print_count = 0;
         if (print_count < 5 && i < 4) {
             printf("NORM[%d]: raw=%.0f mean=%.0f std=%.0f -> norm=%.3f\n", 

@@ -1,8 +1,3 @@
-"""
-Clean and merge multiple EMG data files into one CSV
-Python version of the R script
-"""
-
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -20,7 +15,6 @@ def is_valid_line(line):
     """
     line = line.strip()
     
-    # Pattern: number,number,number,number (each 1-4 digits)
     pattern = r'^\d{1,4},\d{1,4},\d{1,4},\d{1,4}$'
     
     if not re.match(pattern, line):
@@ -55,42 +49,34 @@ def clean_and_merge_files(folder_path, output_filename="all_data.csv"):
     processed_files = 0
     
     for file_path in files:
-        # Read all lines
         with open(file_path, 'r', encoding='utf-8') as f:
             lines = f.readlines()
         
-        # Clean lines
         lines = [line.strip() for line in lines if line.strip()]
         
-        # Keep only valid lines
         valid_lines = [line for line in lines if is_valid_line(line)]
         
         if not valid_lines:
             print(f"Warning: No valid lines in {file_path.name}")
             continue
         
-        # Get label from filename (without extension)
         label = file_path.stem
         
-        # Add label to each line
         labeled_lines = [f"{line},{label}" for line in valid_lines]
         
-        # Write back to original file (optional)
         with open(file_path, 'w', encoding='utf-8') as f:
             f.write('\n'.join(labeled_lines))
         
-        # Add to all lines
         all_lines.extend(labeled_lines)
         processed_files += 1
         
         print(f"Processed: {file_path.name} -> {len(valid_lines)} rows")
     
-    # Write all data to single CSV file
     output_file = folder / output_filename
     with open(output_file, 'w', encoding='utf-8') as f:
         f.write('\n'.join(all_lines))
     
-    print(f"\n✅ Done!")
+    print(f"\nDone!")
     print(f"Processed files: {processed_files}")
     print(f"Total rows: {len(all_lines)}")
     print(f"Output saved to: {output_file}")
@@ -106,14 +92,12 @@ def load_merged_data(file_path):
     df = pd.read_csv(file_path, header=None, 
                      names=['s1', 's2', 's3', 's4', 'gesture'])
     
-    # Convert to numeric
     df['s1'] = pd.to_numeric(df['s1'], errors='coerce')
     df['s2'] = pd.to_numeric(df['s2'], errors='coerce')
     df['s3'] = pd.to_numeric(df['s3'], errors='coerce')
     df['s4'] = pd.to_numeric(df['s4'], errors='coerce')
     df['gesture'] = df['gesture'].astype('category')
     
-    # Remove any rows with NaN
     df = df.dropna()
     
     print(f"Loaded {len(df)} rows, {df['gesture'].nunique()} unique gestures")
@@ -124,7 +108,6 @@ def load_merged_data(file_path):
 def add_sample_ids(df):
     """Add sample_id column (increments when gesture changes)"""
     df = df.copy()
-    # Detect when gesture changes
     gesture_changed = (df['gesture'] != df['gesture'].shift()).fillna(True)
     df['sample_id'] = gesture_changed.cumsum()
     return df
@@ -153,7 +136,6 @@ def plot_gesture_signals(df_long, gesture, output_dir="plots"):
     """Plot signal shapes for a specific gesture"""
     Path(output_dir).mkdir(exist_ok=True)
     
-    # Get first sample of this gesture
     gesture_df = df_long[df_long['gesture'] == gesture]
     first_sample = gesture_df['sample_id'].iloc[0]
     sample_df = gesture_df[gesture_df['sample_id'] == first_sample]
@@ -183,7 +165,7 @@ def plot_all_gestures(df_long, output_dir="plots"):
     for gesture in gestures:
         plot_gesture_signals(df_long, gesture, output_dir)
     
-    print(f"✅ Plotted {len(gestures)} gestures")
+    print(f"Plotted {len(gestures)} gestures")
 
 def plot_sensor_density(df_long, sensor, x_max=None, output_dir="plots"):
     """Plot density distribution for a specific sensor"""
@@ -220,7 +202,7 @@ def plot_all_density_plots(df_long, output_dir="plots"):
     for sensor in sensors:
         plot_sensor_density(df_long, sensor, x_limits.get(sensor), output_dir)
     
-    print("✅ All density plots created")
+    print("All density plots created")
 
 # ============================================
 # PART 4: Main execution
@@ -233,7 +215,7 @@ def main():
     
     # Step 1: Clean and merge files
     print("\n--- Step 1: Cleaning and merging files ---")
-    folder_path = "data/08044"  # Change this to your folder
+    folder_path = "data/08044"
     
     if not Path(folder_path).exists():
         print(f"Folder not found: {folder_path}")
@@ -264,9 +246,8 @@ def main():
     print("\n--- Step 6: Saving processed data ---")
     output_processed = Path(folder_path) / "all_data_processed.csv"
     df.to_csv(output_processed, index=False)
-    print(f"✅ Processed data saved to: {output_processed}")
+    print(f"Processed data saved to: {output_processed}")
     
-    # Print summary statistics
     print("\n" + "="*60)
     print("SUMMARY STATISTICS")
     print("="*60)
@@ -277,7 +258,7 @@ def main():
     for gesture, count in gesture_counts.items():
         print(f"  {gesture}: {count} samples ({count/1000:.1f}s)")
     
-    print("\n✅ All done!")
+    print("\nAll done!")
 
 if __name__ == "__main__":
     main()
