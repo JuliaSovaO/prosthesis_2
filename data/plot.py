@@ -164,7 +164,7 @@ def create_detailed_plot(data_path="data/all_g.txt", save_dir="plots"):
         
         print(f"✅ Saved: {save_dir}/detailed_plot_{start_idx}_{end_idx}.png")
 
-def create_range_worksheet(data_path="data/all_g.txt"):
+def create_range_worksheet(data_path="data/test3.txt"):
     """Create a worksheet to fill in gesture ranges"""
     
     df = pd.read_csv(data_path, header=None, names=['ch0', 'ch1', 'ch2', 'ch3'])

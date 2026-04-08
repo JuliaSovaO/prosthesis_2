@@ -14,6 +14,7 @@ extern "C" {
 #define EMG_BUFFER_SIZE     100     
 #define PREDICTION_HISTORY  5       
 #define STATE_DEBOUNCE_MS   200     
+#define MIN_GESTURE_INTERVAL_MS 3000  // Minimum 5 seconds between gesture changes
 #define ACTIVITY_TIMEOUT_MS 1500    
 #define MIN_CONFIDENCE      0.3f    
 

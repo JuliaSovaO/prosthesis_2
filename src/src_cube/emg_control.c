@@ -19,6 +19,7 @@ static uint8_t history_filled = 0;
 static ProsthesisState_t current_state = STATE_IDLE;
 static uint32_t last_state_change_time = 0;
 static uint32_t last_activity_time = 0;
+static uint32_t last_gesture_time = 0;  // Track last gesture change for servo protection
 
 // Debug mode
 static uint8_t debug_mode = 1;
@@ -29,17 +30,37 @@ static uint32_t frame_count = 0;
 static uint16_t baseline[4] = {0};
 static uint16_t threshold[4] = {0};
 
+// Servo angles for each gesture
 static const GestureAngles_t gesture_angles[] = {
-    /* STATE_ROCK       */ {150, 180, 170, 180, 120},
-    /* STATE_SCISSORS   */ {150, 0,   0,   180, 120},
-    /* STATE_PAPER      */ {0,   0,   10,  20,   0},
-    /* STATE_FUCK       */ {150, 180, 0,   180, 120},
-    /* STATE_THREE      */ {150, 0,   0,   0,   120},
-    /* STATE_FOUR       */ {0,   0,   10,  20,   0},
-    /* STATE_GOOD       */ {0,   180, 170, 180, 120},
-    /* STATE_OKAY       */ {60,  60,  170, 180, 120},
-    /* STATE_FINGER_GUN */ {0,   0,   170, 180, 120},
-    /* STATE_REST       */ {0,   0,   10,  20,   0}
+    /* ROCK (fist - all closed) */
+    {180, 180, 130, 180, 180},
+    
+    /* SCISSORS (index + middle open) */
+    {180, 10, 10, 180, 180},
+    
+    /* PAPER (all open) */
+    {0, 10, 10, 80, 10},
+    
+    /* FUCK (middle finger only) */
+    {180, 180, 10, 180, 180},
+    
+    /* THREE (index + middle + ring open) */
+    {180, 10, 10, 80, 180},
+    
+    /* FOUR (only thumb closed) */
+    {180, 10, 10, 80, 10},
+    
+    /* GOOD (only thumb open) */
+    {0, 180, 130, 180, 180},
+    
+    /* OKAY (thumb + index circle) */
+    {180, 180, 10, 80, 10},
+    
+    /* FINGER_GUN (index + thumb) */
+    {0, 10, 160, 180, 180},
+    
+    /* REST (relaxed) */
+    {30, 40, 40, 80, 40}
 };
 
 static const char* state_names[] = {
@@ -61,9 +82,11 @@ void EMG_Control_Init(void) {
     current_state = STATE_IDLE;
     last_state_change_time = HAL_GetTick();
     last_activity_time = HAL_GetTick();
+    last_gesture_time = HAL_GetTick();  // Initialize gesture timer
     
     ann_init();
     
+    // Set initial servo positions (rest/open hand)
     const GestureAngles_t* idle_angles = &gesture_angles[STATE_REST];
     SetServo1Angle(idle_angles->thumb_angle);
     SetServo2Angle(idle_angles->index_angle);
@@ -75,7 +98,8 @@ void EMG_Control_Init(void) {
     printf("Window: %d samples, Step: %d samples, History: %d\r\n", 
            EMG_WINDOW_SIZE, EMG_WINDOW_STEP, PREDICTION_HISTORY);
     printf("ANN Input: %d features, Output: %d classes\r\n", ANN_INPUT_SIZE, ANN_NUM_CLASSES);
-    printf("Min confidence: %.2f, Activity timeout: %dms\r\n", MIN_CONFIDENCE, ACTIVITY_TIMEOUT_MS);
+    printf("Min confidence: %.2f, Min gesture interval: %dms\r\n", MIN_CONFIDENCE, MIN_GESTURE_INTERVAL_MS);
+    printf("Activity timeout: %dms\r\n", ACTIVITY_TIMEOUT_MS);
 }
 
 void EMG_AutoCalibrate(void) {
@@ -194,6 +218,12 @@ static void execute_gesture(ProsthesisState_t state) {
     SetServo3Angle(angles->middle_angle);
     SetServo4Angle(angles->ring_angle);
     SetServo5Angle(angles->pinky_angle);
+    
+    if (debug_mode) {
+        printf("SERVO: T=%d I=%d M=%d R=%d P=%d\r\n",
+               angles->thumb_angle, angles->index_angle,
+               angles->middle_angle, angles->ring_angle, angles->pinky_angle);
+    }
 }
 
 void EMG_Control_Process(void) {
@@ -230,23 +260,36 @@ void EMG_Control_Process(void) {
                 last_activity_time = now;
             }
             
-            // Update state based on prediction
+            // State change with servo protection - minimum 5 seconds between changes
             if (smoothed != current_state && confidence >= MIN_CONFIDENCE) {
-                if (now - last_state_change_time >= STATE_DEBOUNCE_MS) {
-                    printf("GESTURE: %s -> %s (conf=%.3f)\r\n", 
-                           state_names[current_state], state_names[smoothed], confidence);
-                    current_state = smoothed;
-                    last_state_change_time = now;
-                    execute_gesture(current_state);
+                // Check if enough time has passed since last gesture change
+                if (now - last_gesture_time >= MIN_GESTURE_INTERVAL_MS) {
+                    if (now - last_state_change_time >= STATE_DEBOUNCE_MS) {
+                        printf("GESTURE: %s -> %s (conf=%.3f)\r\n", 
+                               state_names[current_state], state_names[smoothed], confidence);
+                        current_state = smoothed;
+                        last_state_change_time = now;
+                        last_gesture_time = now;
+                        execute_gesture(current_state);
+                    }
+                } else {
+                    // Print warning occasionally (every 2 seconds max)
+                    static uint32_t last_warning = 0;
+                    if (now - last_warning > 2000) {
+                        printf("WARNING: Gesture change blocked - only %d ms since last change (min %d ms)\r\n",
+                               (int)(now - last_gesture_time), MIN_GESTURE_INTERVAL_MS);
+                        last_warning = now;
+                    }
                 }
             } else if (current_state != STATE_REST && !is_active && (now - last_activity_time > ACTIVITY_TIMEOUT_MS)) {
+                // Return to rest - this is allowed anytime (doesn't count as gesture change for servo protection)
                 printf("GESTURE: %s -> REST (timeout)\r\n", state_names[current_state]);
                 current_state = STATE_REST;
                 last_state_change_time = now;
+                // Note: last_gesture_time NOT updated here - returning to rest is safe
                 execute_gesture(STATE_REST);
             }
             
-            // Debug print every 20 frames
             debug_counter++;
             if (debug_counter % 20 == 0) {
                 printf("DEBUG: ADC: %d,%d,%d,%d | Pred: %d (%s) | Conf: %.3f | Active: %d\r\n",

@@ -233,7 +233,7 @@ def main():
     
     # Step 1: Clean and merge files
     print("\n--- Step 1: Cleaning and merging files ---")
-    folder_path = "data/07043"  # Change this to your folder
+    folder_path = "data/08044"  # Change this to your folder
     
     if not Path(folder_path).exists():
         print(f"Folder not found: {folder_path}")
