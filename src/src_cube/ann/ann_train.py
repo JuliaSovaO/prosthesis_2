@@ -287,12 +287,12 @@ def main():
     print("="*60)
     
     # Load data
-    data_path = "data/08044/all_data_processed.csv"
+    data_path = "data/26042/all_data_processed.csv"
     
     if not os.path.exists(data_path):
         print(f"File not found: {data_path}")
         print("Trying alternative path...")
-        data_path = "data/07043/all_data.csv"
+        data_path = "data/26042/all_data.csv"
         if not os.path.exists(data_path):
             print("File not found!")
             return

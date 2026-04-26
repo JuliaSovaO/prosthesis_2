@@ -5,45 +5,43 @@ from pathlib import Path
 import re
 
 # ============================================
-# PART 1: Clean and merge individual files
+# PART 1: Merge labeled TXT files into CSV
 # ============================================
 
-def is_valid_line(line):
+def is_valid_labeled_line(line):
     """
-    Check if a line has exactly 4 numbers separated by commas,
-    each between 0 and 9999
+    Check if a line has the format: number,number,number,number,label
+    where numbers are between 0 and 9999 and label is non-empty
     """
     line = line.strip()
     
-    pattern = r'^\d{1,4},\d{1,4},\d{1,4},\d{1,4},$'
+    # Pattern: 4 comma-separated numbers (1-4 digits each), a comma, and a label
+    pattern = r'^\d{1,4},\d{1,4},\d{1,4},\d{1,4},.+$'
     
     if not re.match(pattern, line):
         return False
     
     parts = line.split(',')
-    nums = [int(p) for p in parts]
-    
-    if len(nums) != 4:
-        return False
+    nums = [int(p) for p in parts[:4]]
     
     return all(0 <= n <= 9999 for n in nums)
 
-def clean_and_merge_files(folder_path, output_filename="all_data.csv"):
+def merge_labeled_files(folder_path, output_filename="all_data.csv"):
     """
-    Process all .txt files in folder, clean them, add labels, and merge
+    Merge all labeled .txt files into a single CSV without modifying originals
     
     Parameters:
-    - folder_path: path to folder containing .txt files
+    - folder_path: path to folder containing labeled .txt files
     - output_filename: name of output CSV file
     """
     
     folder = Path(folder_path)
     
-    # Find all .txt files, exclude existing all_data.csv
+    # Find all .txt files
     files = list(folder.glob("*.txt"))
-    files = [f for f in files if f.name != "all_data.csv" and f.name != "all_data.txt"]
+    files = [f for f in files if f.name != output_filename]
     
-    print(f"Found {len(files)} files to process")
+    print(f"Found {len(files)} files to merge")
     
     all_lines = []
     processed_files = 0
@@ -52,34 +50,47 @@ def clean_and_merge_files(folder_path, output_filename="all_data.csv"):
         with open(file_path, 'r', encoding='utf-8') as f:
             lines = f.readlines()
         
+        # Remove empty lines and strip whitespace
         lines = [line.strip() for line in lines if line.strip()]
         
-        valid_lines = [line for line in lines if is_valid_line(line)]
+        # Validate lines (should already be labeled)
+        valid_lines = [line for line in lines if is_valid_labeled_line(line)]
+        invalid_count = len(lines) - len(valid_lines)
         
         if not valid_lines:
-            print(f"Warning: No valid lines in {file_path.name}")
+            print(f"Warning: No valid labeled lines in {file_path.name}")
             continue
         
-        label = file_path.stem
+        if invalid_count > 0:
+            print(f"Warning: {invalid_count} invalid lines skipped in {file_path.name}")
         
-        labeled_lines = [f"{line},{label}" for line in valid_lines]
+        # Extract label from filename (the gesture name)
+        file_label = file_path.stem
         
-        with open(file_path, 'w', encoding='utf-8') as f:
-            f.write('\n'.join(labeled_lines))
+        # Verify the label in the file matches the filename
+        # (optional consistency check)
+        for line in valid_lines:
+            parts = line.rsplit(',', 1)  # Split on last comma
+            line_label = parts[1].strip()
+            if line_label != file_label:
+                print(f"Warning: Label mismatch in {file_path.name}: "
+                      f"found '{line_label}', expected '{file_label}'")
         
-        all_lines.extend(labeled_lines)
+        all_lines.extend(valid_lines)
         processed_files += 1
         
-        print(f"Processed: {file_path.name} -> {len(valid_lines)} rows")
+        print(f"Merged: {file_path.name} -> {len(valid_lines)} rows")
     
+    # Write merged file
     output_file = folder / output_filename
     with open(output_file, 'w', encoding='utf-8') as f:
         f.write('\n'.join(all_lines))
     
     print(f"\nDone!")
-    print(f"Processed files: {processed_files}")
+    print(f"Files merged: {processed_files}")
     print(f"Total rows: {len(all_lines)}")
     print(f"Output saved to: {output_file}")
+    print("Original files were NOT modified")
     
     return output_file
 
@@ -210,11 +221,11 @@ def plot_all_density_plots(df_long, output_dir="plots"):
 
 def main():
     print("="*60)
-    print("EMG Data Processing Pipeline")
+    print("EMG Data Processing Pipeline (Merge Only)")
     print("="*60)
     
-    # Step 1: Clean and merge files
-    print("\n--- Step 1: Cleaning and merging files ---")
+    # Step 1: Merge labeled files
+    print("\n--- Step 1: Merging labeled files ---")
     folder_path = "data/26042"
     
     if not Path(folder_path).exists():
@@ -222,7 +233,7 @@ def main():
         print("Please update the folder_path variable")
         return
     
-    output_file = clean_and_merge_files(folder_path, "all_data.csv")
+    output_file = merge_labeled_files(folder_path, "all_data.csv")
     
     # Step 2: Load and analyze
     print("\n--- Step 2: Loading merged data ---")
