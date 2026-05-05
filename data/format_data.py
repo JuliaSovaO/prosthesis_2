@@ -15,7 +15,7 @@ def is_valid_line(line):
     """
     line = line.strip()
     
-    pattern = r'^\d{1,4},\d{1,4},\d{1,4},\d{1,4},$'
+    pattern = r'^\d{1,4},\d{1,4},\d{1,4},\d{1,4}$'
     
     if not re.match(pattern, line):
         return False
@@ -215,7 +215,7 @@ def main():
     
     # Step 1: Clean and merge files
     print("\n--- Step 1: Cleaning and merging files ---")
-    folder_path = "data/26042"
+    folder_path = "data/05051"
     
     if not Path(folder_path).exists():
         print(f"Folder not found: {folder_path}")

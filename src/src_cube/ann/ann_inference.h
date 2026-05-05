@@ -8,9 +8,15 @@ extern "C" {
 #include <stdint.h>
 #include <math.h>
 
-#define ANN_INPUT_SIZE     16      // 4 channels * 4 features (RMS, MAV, VAR, WL)
-#define ANN_WINDOW_SIZE    50
+#ifndef ANN_INPUT_SIZE
+#define ANN_INPUT_SIZE     32
+#endif
+#ifndef ANN_WINDOW_SIZE
+#define ANN_WINDOW_SIZE    250
+#endif
+#ifndef ANN_NUM_CLASSES
 #define ANN_NUM_CLASSES    10
+#endif
 
 void ann_extract_features(const uint16_t raw_data[][4], uint16_t window_size, float* features);
 void ann_forward(const float* input, float* output);
@@ -25,4 +31,4 @@ float ann_get_confidence_from_buffer(const uint16_t emg_buffer[][4], uint16_t bu
 }
 #endif
 
-#endif // ANN_INFERENCE_H
+#endif

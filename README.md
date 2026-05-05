@@ -1,9 +1,9 @@
 # prosthesis_2
 Forearm prosthesis using 4 Mioware Muscle Sensors.
 
-- ﬂexor carpi radialis а0
-- brachioradialis а1
-- ﬂexor carpi ulnaris а2
+- ﬂexor carpi radialis а0  gr new
+- brachioradialis а1  yel
+- ﬂexor carpi ulnaris а2  red
 - flexor digitorum superficialis а3
 
     'rock': 0,     thumb under      # all closed       okay fuck

@@ -3,159 +3,195 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
+from sklearn.utils.class_weight import compute_class_weight
 import tensorflow as tf
-from tensorflow.keras import layers, models, callbacks
+from tensorflow.keras import layers, models, callbacks, regularizers
 import json
 import os
+import warnings
+warnings.filterwarnings('ignore')
 
 tf.keras.backend.set_floatx('float32')
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
-WINDOW_SIZE = 50      # 50ms window at ~1000Hz
-WINDOW_STEP = 25      # 50% overlap
-FEATURES_PER_CHANNEL = 4  # RMS, MAV, VAR, WL
-INPUT_SIZE = 16       # 4 channels * 4 features
+WINDOW_SIZE = 250
+WINDOW_STEP = 50
+FEATURES_PER_CHANNEL = 8
+NUM_CHANNELS = 4
+INPUT_SIZE = NUM_CHANNELS * FEATURES_PER_CHANNEL  # 32
 
 GESTURE_ORDER = ['finger-gun', 'four', 'fuck', 'good', 'okay', 
                  'paper', 'rest', 'rock', 'scissors', 'three']
 
-def load_balanced_data(csv_path):
-    print(f"Loading data from {csv_path}...")
-    
-    df = pd.read_csv(csv_path)
-    print(f"Total rows: {len(df)}")
-    print(f"Columns: {df.columns.tolist()}")
-    
-    X = df[['s1', 's2', 's3', 's4']].values.astype(np.float32)
-    
-    y = df['gesture'].values
-    
-    # Encode labels
-    label_encoder = LabelEncoder()
-    label_encoder.fit(GESTURE_ORDER)
-    y_encoded = label_encoder.transform(y)
-    
-    print(f"\nGesture classes:")
-    for i, name in enumerate(label_encoder.classes_):
-        count = np.sum(y_encoded == i)
-        print(f"  {i}: {name} ({count} samples, {count/1000:.1f}s)")
-    
-    return X, y_encoded, label_encoder
-
-def extract_features_sliding_window(X, y, window_size=50, step=25):
-    n_samples, n_channels = X.shape
+def extract_features(window):
+    """Extract 8 features per channel: RMS, MAV, WL, ZC, SSC, IEMG, MeanFreq, MedFreq"""
     features = []
-    labels = []
     
-    print(f"\nExtracting features with sliding window...")
-    print(f"  Window size: {window_size} samples")
-    print(f"  Step size: {step} samples")
-    print(f"  Total samples: {n_samples}")
+    for ch in range(window.shape[1]):
+        ch_data = window[:, ch].astype(np.float64)
+        
+        # Time domain features
+        rms = np.sqrt(np.mean(ch_data ** 2))
+        mav = np.mean(np.abs(ch_data))
+        wl = np.sum(np.abs(np.diff(ch_data)))
+        
+        # Zero crossings with threshold
+        threshold = 0.01 * (np.max(ch_data) - np.min(ch_data) + 1e-6)
+        zc = 0
+        for i in range(1, len(ch_data)):
+            if abs(ch_data[i] - ch_data[i-1]) >= threshold:
+                if np.sign(ch_data[i]) != np.sign(ch_data[i-1]):
+                    zc += 1
+        
+        # Slope sign changes
+        ssc = 0
+        for i in range(1, len(ch_data)-1):
+            d1 = ch_data[i] - ch_data[i-1]
+            d2 = ch_data[i+1] - ch_data[i]
+            if d1 * d2 < 0:
+                if abs(d1) >= threshold or abs(d2) >= threshold:
+                    ssc += 1
+        
+        # Integrated EMG
+        iemg = np.sum(np.abs(ch_data))
+        
+        # Frequency features
+        n = len(ch_data)
+        freqs = np.fft.rfftfreq(n, d=1.0/1000.0)
+        spectrum = np.abs(np.fft.rfft(ch_data))
+        total_power = np.sum(spectrum) + 1e-10
+        mean_freq = np.sum(freqs * spectrum) / total_power
+        
+        cumulative = np.cumsum(spectrum)
+        half_power_idx = np.searchsorted(cumulative, cumulative[-1]/2)
+        median_freq = freqs[min(half_power_idx, len(freqs)-1)]
+        
+        features.extend([
+            np.clip(rms, 0, 10000),
+            np.clip(mav, 0, 10000),
+            np.clip(wl, 0, 500000),
+            float(zc),
+            float(ssc),
+            np.clip(iemg, 0, 5000000),
+            np.clip(mean_freq, 0, 500),
+            np.clip(median_freq, 0, 500)
+        ])
     
-    total_windows = 0
-    for start in range(0, n_samples - window_size, step):
-        end = start + window_size
-        window = X[start:end, :]
-        
-        window_labels = y[start:end]
-        label = np.bincount(window_labels).argmax()
-        
-        # Extract 4 features per channel
-        feat = []
-        for ch in range(n_channels):
-            ch_data = window[:, ch]
-            
-            # RMS
-            rms = np.sqrt(np.mean(ch_data ** 2))
-            
-            # MAV
-            mav = np.mean(np.abs(ch_data))
-            
-            # Variance
-            var = np.var(ch_data)
-            
-            # Waveform Length
-            wl = np.sum(np.abs(np.diff(ch_data)))
-            
-            # Clip to prevent overflow
-            rms = min(rms, 10000) if not np.isnan(rms) else 0
-            mav = min(mav, 10000) if not np.isnan(mav) else 0
-            var = min(var, 1e8) if not np.isnan(var) else 0
-            wl = min(wl, 1e6) if not np.isnan(wl) else 0
-            
-            feat.extend([rms, mav, var, wl])
-        
-        features.append(feat)
-        labels.append(label)
-        total_windows += 1
-        
-        if total_windows % 5000 == 0:
-            print(f"  Processed {total_windows} windows...")
-    
-    print(f"  Extracted {total_windows} windows")
-    print(f"  Feature vector size: {len(features[0])}")
-    
-    return np.array(features, dtype=np.float32), np.array(labels, dtype=np.int32)
+    return np.array(features, dtype=np.float32)
 
 def create_model(input_dim, num_classes):
+    """Simple but deep MLP - compatible with simple C inference"""
     model = models.Sequential([
         layers.Input(shape=(input_dim,)),
         
-        layers.Dense(128, activation='relu'),
+        layers.Dense(256, kernel_regularizer=regularizers.l2(1e-5)),
         layers.BatchNormalization(),
+        layers.Activation('relu'),
+        layers.Dropout(0.4),
+        
+        layers.Dense(128, kernel_regularizer=regularizers.l2(1e-5)),
+        layers.BatchNormalization(),
+        layers.Activation('relu'),
         layers.Dropout(0.3),
         
-        layers.Dense(64, activation='relu'),
+        layers.Dense(64, kernel_regularizer=regularizers.l2(1e-5)),
         layers.BatchNormalization(),
+        layers.Activation('relu'),
         layers.Dropout(0.3),
         
-        layers.Dense(32, activation='relu'),
+        layers.Dense(32, kernel_regularizer=regularizers.l2(1e-5)),
         layers.BatchNormalization(),
+        layers.Activation('relu'),
         layers.Dropout(0.2),
         
         layers.Dense(num_classes, activation='softmax')
     ])
     return model
 
-def generate_c_headers(model, label_encoder, scaler, output_dir='src/src_cube/ann_balanced'):
-    os.makedirs(output_dir, exist_ok=True)
+def fuse_batchnorm(model):
+    """Fuse BatchNormalization layers into preceding Dense layers for deployment"""
+    dense_layers = []
+    current_dense = None
     
-    # Get weights from Dense layers only
-    weights = []
-    biases = []
     for layer in model.layers:
         if isinstance(layer, layers.Dense):
-            w, b = layer.get_weights()
-            weights.append(w)
-            biases.append(b)
+            if current_dense is not None:
+                w, b = current_dense.get_weights()
+                dense_layers.append((w, b))
+            current_dense = layer
+        elif isinstance(layer, layers.BatchNormalization) and current_dense is not None:
+            w, b = current_dense.get_weights()
+            gamma, beta, mean, var = layer.get_weights()
+            epsilon = layer.epsilon
+            
+            scale = gamma / np.sqrt(var + epsilon)
+            w_fused = w * scale
+            b_fused = (b - mean) * scale + beta
+            
+            dense_layers.append((w_fused, b_fused))
+            current_dense = None
     
-    class_names = label_encoder.classes_.tolist()
+    if current_dense is not None:
+        w, b = current_dense.get_weights()
+        dense_layers.append((w, b))
     
-    # Generate weights.h
+    return dense_layers
+
+def write_flat_array(f, name, arr):
+    flat = arr.flatten() if hasattr(arr, 'flatten') else np.array(arr)
+    f.write(f'const float {name}[] = {{\n')
+    for j, val in enumerate(flat):
+        if np.isnan(val) or np.isinf(val):
+            val = 0.0
+        if j % 8 == 0:
+            f.write('    ')
+        f.write(f'{val:.6f}f')
+        if j < len(flat) - 1:
+            f.write(', ')
+        if (j + 1) % 8 == 0:
+            f.write('\n')
+    if len(flat) % 8 != 0:
+        f.write('\n')
+    f.write('};\n\n')
+
+def generate_c_headers(dense_layers, class_names, scaler, output_dir='src/src_cube/ann'):
+    os.makedirs(output_dir, exist_ok=True)
+    
+    num_layers = len(dense_layers)
+    
+    # Layer sizes: [input_dim, hidden1, hidden2, ..., output]
+    layer_sizes = [INPUT_SIZE]
+    for w, _ in dense_layers:
+        layer_sizes.append(w.shape[1])
+    
+    print(f"\nGenerating C headers with {num_layers} layers")
+    print(f"Layer sizes: {layer_sizes}")
+    
+    # weights.h
     with open(os.path.join(output_dir, 'weights.h'), 'w') as f:
         f.write('#ifndef ANN_WEIGHTS_H\n#define ANN_WEIGHTS_H\n\n')
-        f.write('#include <stdint.h>\n\n#ifdef __cplusplus\nextern "C" {\n#endif\n\n')
+        f.write('#include <stdint.h>\n\n')
+        f.write('#ifdef __cplusplus\nextern "C" {\n#endif\n\n')
         
-        f.write(f'#define ANN_INPUT_SIZE {scaler.mean_.shape[0]}\n')
+        f.write(f'#define ANN_INPUT_SIZE {INPUT_SIZE}\n')
         f.write(f'#define ANN_WINDOW_SIZE {WINDOW_SIZE}\n')
         f.write(f'#define ANN_NUM_CLASSES {len(class_names)}\n')
-        f.write(f'#define ANN_NUM_LAYERS {len(weights)}\n\n')
+        f.write(f'#define ANN_NUM_LAYERS {num_layers}\n')
+        f.write(f'#define ANN_FEATURES_PER_CHANNEL {FEATURES_PER_CHANNEL}\n\n')
         
         f.write('extern const char* ann_class_names[];\n')
         f.write('extern const int ann_layer_sizes[];\n\n')
         
-        for i in range(len(weights)):
+        for i in range(num_layers):
             f.write(f'extern const float ann_weights_{i}[];\n')
-            f.write(f'extern const float ann_biases_{i}[];\n\n')
+            f.write(f'extern const float ann_biases_{i}[];\n')
         
-        f.write('extern const float* ann_weights_ptrs[];\n')
-        f.write('extern const float* ann_biases_ptrs[];\n')
-        f.write('extern const float ann_input_mean[];\n')
+        f.write('\nextern const float ann_input_mean[];\n')
         f.write('extern const float ann_input_std[];\n\n')
         
         f.write('#ifdef __cplusplus\n}\n#endif\n\n#endif\n')
     
-    # Generate weights.c
+    # weights.c
     with open(os.path.join(output_dir, 'weights.c'), 'w') as f:
         f.write('#include "weights.h"\n\n')
         
@@ -164,258 +200,177 @@ def generate_c_headers(model, label_encoder, scaler, output_dir='src/src_cube/an
             f.write(f'    "{name}",\n')
         f.write('};\n\n')
         
-        # Layer sizes
-        layer_sizes = [model.input_shape[1]]
-        for layer in model.layers:
-            if isinstance(layer, layers.Dense):
-                layer_sizes.append(layer.units)
         f.write('const int ann_layer_sizes[] = {\n')
-        for i, sz in enumerate(layer_sizes):
+        for sz in layer_sizes:
             f.write(f'    {sz},\n')
         f.write('};\n\n')
         
-        # Weights and biases
-        for i, (w, b) in enumerate(zip(weights, biases)):
-            f.write(f'const float ann_weights_{i}[] = {{\n')
-            flat = w.flatten()
-            for j, val in enumerate(flat):
-                if np.isnan(val) or np.isinf(val):
-                    val = 0.0
-                if j % 8 == 0:
-                    f.write('    ')
-                f.write(f'{val:.6f}f')
-                if j < len(flat) - 1:
-                    f.write(', ')
-                if (j + 1) % 8 == 0:
-                    f.write('\n')
-            if len(flat) % 8 != 0:
-                f.write('\n')
-            f.write('};\n\n')
-            
-            f.write(f'const float ann_biases_{i}[] = {{\n')
-            for j, val in enumerate(b):
-                if np.isnan(val) or np.isinf(val):
-                    val = 0.0
-                if j % 8 == 0:
-                    f.write('    ')
-                f.write(f'{val:.6f}f')
-                if j < len(b) - 1:
-                    f.write(', ')
-                if (j + 1) % 8 == 0:
-                    f.write('\n')
-            if len(b) % 8 != 0:
-                f.write('\n')
-            f.write('};\n\n')
+        for i, (w, b) in enumerate(dense_layers):
+            write_flat_array(f, f'ann_weights_{i}', w)
+            write_flat_array(f, f'ann_biases_{i}', b)
         
-        # Pointer arrays
-        f.write('const float* ann_weights_ptrs[] = {\n')
-        for i in range(len(weights)):
-            f.write(f'    ann_weights_{i},\n')
-        f.write('};\n\n')
-        
-        f.write('const float* ann_biases_ptrs[] = {\n')
-        for i in range(len(weights)):
-            f.write(f'    ann_biases_{i},\n')
-        f.write('};\n\n')
-        
-        # Normalization parameters
-        f.write('const float ann_input_mean[] = {\n')
-        for i, mean in enumerate(scaler.mean_):
-            if np.isnan(mean) or np.isinf(mean):
-                mean = 0.0
-            if i % 8 == 0:
-                f.write('    ')
-            f.write(f'{mean:.6f}f')
-            if i < len(scaler.mean_) - 1:
-                f.write(', ')
-            if (i + 1) % 8 == 0:
-                f.write('\n')
-        if len(scaler.mean_) % 8 != 0:
-            f.write('\n')
-        f.write('};\n\n')
-        
-        f.write('const float ann_input_std[] = {\n')
-        for i, std in enumerate(scaler.scale_):
-            if np.isnan(std) or np.isinf(std) or std == 0:
-                std = 1.0
-            if i % 8 == 0:
-                f.write('    ')
-            f.write(f'{std:.6f}f')
-            if i < len(scaler.scale_) - 1:
-                f.write(', ')
-            if (i + 1) % 8 == 0:
-                f.write('\n')
-        if len(scaler.scale_) % 8 != 0:
-            f.write('\n')
-        f.write('};\n')
+        write_flat_array(f, 'ann_input_mean', scaler.mean_)
+        write_flat_array(f, 'ann_input_std', scaler.scale_)
     
-    print(f"\nGenerated C headers in {output_dir}/")
-
-def plot_training_history(history, save_path='training_history_balanced.png'):
-    try:
-        import matplotlib.pyplot as plt
-        
-        fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-        
-        axes[0].plot(history.history['accuracy'], label='Train Accuracy')
-        axes[0].plot(history.history['val_accuracy'], label='Val Accuracy')
-        axes[0].set_title('Model Accuracy')
-        axes[0].set_xlabel('Epoch')
-        axes[0].set_ylabel('Accuracy')
-        axes[0].legend()
-        axes[0].grid(True, alpha=0.3)
-        
-        axes[1].plot(history.history['loss'], label='Train Loss')
-        axes[1].plot(history.history['val_loss'], label='Val Loss')
-        axes[1].set_title('Model Loss')
-        axes[1].set_xlabel('Epoch')
-        axes[1].set_ylabel('Loss')
-        axes[1].legend()
-        axes[1].grid(True, alpha=0.3)
-        
-        plt.tight_layout()
-        plt.savefig(save_path, dpi=150)
-        plt.show()
-        print(f"Training history saved to {save_path}")
-    except Exception as e:
-        print(f"Could not plot: {e}")
+    print(f"Generated: {output_dir}/weights.h, {output_dir}/weights.c")
 
 def main():
     print("="*60)
-    print("EMG ANN Training - Balanced Data (10 Gestures)")
-    print(f"Window: {WINDOW_SIZE} samples, Step: {WINDOW_STEP}")
+    print("EMG ANN Training - Compatible Architecture")
+    print(f"Features: {FEATURES_PER_CHANNEL}/ch = {INPUT_SIZE} total")
+    print(f"Window: {WINDOW_SIZE}, Step: {WINDOW_STEP}")
     print("="*60)
     
     # Load data
-    data_path = "data/26042/all_data_processed.csv"
+    data_paths = [
+        # "data/02051/all_data_processed.csv",
+        # "data/02051/all_data.csv",
+        # "data/02052/all_data_processed.csv",
+        # "data/02052/all_data.csv",
+        "data/05051/all_data_processed.csv",
+        "data/05051/all_data.csv",
+        # "data/02053/all_data_processed.csv",
+        # "data/02053/all_data.csv",
+        # "data/02054/all_data_processed.csv",
+        # "data/02054/all_data.csv",
+    ]
     
-    if not os.path.exists(data_path):
-        print(f"File not found: {data_path}")
-        print("Trying alternative path...")
-        data_path = "data/26042/all_data.csv"
-        if not os.path.exists(data_path):
-            print("File not found!")
-            return
+    data_path = None
+    for path in data_paths:
+        if os.path.exists(path):
+            data_path = path
+            break
     
-    X_raw, y_encoded, label_encoder = load_balanced_data(data_path)
-    print(f"\nLoaded {len(X_raw)} samples, {X_raw.shape[1]} channels")
-    print(f"Number of classes: {len(label_encoder.classes_)}")
+    if data_path is None:
+        print("ERROR: No data file found!")
+        return
     
-    # Extract features with sliding window
-    X_features, y_features = extract_features_sliding_window(
-        X_raw, y_encoded, window_size=WINDOW_SIZE, step=WINDOW_STEP
-    )
+    print(f"\nLoading: {data_path}")
+    df = pd.read_csv(data_path)
+    X_raw = df[['s1', 's2', 's3', 's4']].values.astype(np.float32)
+    y_str = df['gesture'].values
     
-    # Split data
+    le = LabelEncoder()
+    le.fit(GESTURE_ORDER)
+    y = le.transform(y_str)
+    
+    print(f"Samples: {len(X_raw)}")
+    for i, name in enumerate(le.classes_):
+        count = np.sum(y == i)
+        print(f"  {name}: {count} ({count/1000:.1f}s)")
+    
+    # Extract features
+    print(f"\nExtracting features (window={WINDOW_SIZE}, step={WINDOW_STEP})...")
+    features_list = []
+    labels_list = []
+    
+    for start in range(0, len(X_raw) - WINDOW_SIZE, WINDOW_STEP):
+        window = X_raw[start:start + WINDOW_SIZE]
+        feat = extract_features(window)
+        label = np.bincount(y[start:start + WINDOW_SIZE]).argmax()
+        features_list.append(feat)
+        labels_list.append(label)
+        
+        if len(features_list) % 5000 == 0:
+            print(f"  {len(features_list)} windows...")
+    
+    X = np.array(features_list, dtype=np.float32)
+    y = np.array(labels_list, dtype=np.int32)
+    print(f"Total: {len(X)} windows")
+    
+    # Handle NaN/Inf
+    X = np.nan_to_num(X, nan=0.0, posinf=10000, neginf=-10000)
+    
+    # Train/test split
     X_train, X_test, y_train, y_test = train_test_split(
-        X_features, y_features, test_size=0.2, random_state=42, stratify=y_features
+        X, y, test_size=0.2, random_state=42, stratify=y
     )
+    print(f"\nTrain: {len(X_train)}, Test: {len(X_test)}")
     
-    print(f"\nTraining samples: {len(X_train)}")
-    print(f"Test samples: {len(X_test)}")
-    
-    # Normalize features
+    # Normalize
     scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_test_scaled = scaler.transform(X_test)
+    X_train_s = scaler.fit_transform(X_train)
+    X_test_s = scaler.transform(X_test)
+    
+    # Class weights
+    class_weights = compute_class_weight('balanced', classes=np.unique(y_train), y=y_train)
+    class_weight_dict = dict(enumerate(class_weights))
     
     # Create model
-    input_dim = X_features.shape[1]
-    num_classes = len(label_encoder.classes_)
-    
-    print(f"\nCreating ANN model:")
-    print(f"  Input: {input_dim} features")
-    print(f"  Architecture: 128 → 64 → 32 → {num_classes}")
-    
-    model = create_model(input_dim, num_classes)
+    print(f"\nModel: 256→128→64→32→10 (BN fused for deployment)")
+    model = create_model(INPUT_SIZE, len(le.classes_))
     model.summary()
     
+    # Use a FLOAT learning rate (fixes the ReduceLROnPlateau crash)
     model.compile(
-        optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
+        optimizer=tf.keras.optimizers.Adam(learning_rate=0.002),
         loss='sparse_categorical_crossentropy',
         metrics=['accuracy']
     )
     
     # Callbacks
-    callbacks_list = [
-        callbacks.EarlyStopping(monitor='val_loss', patience=30, restore_best_weights=True, verbose=1),
-        callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=15, min_lr=1e-6, verbose=1),
-        callbacks.ModelCheckpoint('best_model_balanced.h5', monitor='val_accuracy', save_best_only=True, verbose=1)
+    cb = [
+        callbacks.EarlyStopping(monitor='val_loss', patience=60, restore_best_weights=True, verbose=1),
+        callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=25, min_lr=1e-6, verbose=1),
+        callbacks.ModelCheckpoint('best_model.h5', monitor='val_accuracy', 
+                                  save_best_only=True, verbose=1),
     ]
     
     # Train
     print("\nTraining...")
     history = model.fit(
-        X_train_scaled, y_train,
-        epochs=150,
-        batch_size=128,
+        X_train_s, y_train,
+        epochs=300,
+        batch_size=64,
         validation_split=0.2,
-        callbacks=callbacks_list,
-        verbose=1
+        class_weight=class_weight_dict,
+        callbacks=cb,
+        verbose=2
     )
     
     # Evaluate
-    print("\n" + "="*60)
-    print("EVALUATION RESULTS")
-    print("="*60)
+    loss, acc = model.evaluate(X_test_s, y_test, verbose=0)
+    print(f"\n{'='*60}")
+    print(f"Test Accuracy: {acc:.4f} ({acc*100:.1f}%)")
+    print(f"{'='*60}")
     
-    loss, accuracy = model.evaluate(X_test_scaled, y_test, verbose=0)
-    print(f"\nTest loss: {loss:.4f}")
-    print(f"Test accuracy: {accuracy:.4f} ({accuracy*100:.1f}%)")
-    
-    # Predictions
-    y_pred = model.predict(X_test_scaled)
-    y_pred_classes = np.argmax(y_pred, axis=1)
-    
+    y_pred = model.predict(X_test_s, verbose=0).argmax(axis=1)
     print("\nClassification Report:")
-    print(classification_report(y_test, y_pred_classes, target_names=label_encoder.classes_))
+    print(classification_report(y_test, y_pred, target_names=le.classes_))
     
-    print("\nConfusion Matrix:")
-    cm = confusion_matrix(y_test, y_pred_classes)
-    print(cm)
-    
-    # Per-class accuracy
-    print("\nPer-class accuracy:")
-    for i, name in enumerate(label_encoder.classes_):
+    print("Per-class accuracy:")
+    for i, name in enumerate(le.classes_):
         mask = y_test == i
-        if np.sum(mask) > 0:
-            class_acc = accuracy_score(y_test[mask], y_pred_classes[mask])
-            print(f"  {name:12}: {class_acc:.4f} ({class_acc*100:.1f}%)")
+        if mask.sum() > 0:
+            ca = (y_pred[mask] == i).mean()
+            print(f"  {name:12}: {ca:.4f} ({ca*100:.0f}%)")
     
-    # Generate C headers
-    print("\n" + "="*60)
-    print("GENERATING C HEADERS")
-    print("="*60)
-    generate_c_headers(model, label_encoder, scaler, output_dir='src/src_cube/ann_balanced')
+    # Fuse BN and generate C headers
+    dense_layers = fuse_batchnorm(model)
+    generate_c_headers(dense_layers, le.classes_.tolist(), scaler)
     
-    # Save model and scaler
-    model.save('emg_ann_model_balanced.keras')
+    # Save model
+    model.save('emg_ann_model.keras')
     
-    scaler_params = {
+    params = {
         'mean': scaler.mean_.tolist(),
         'scale': scaler.scale_.tolist(),
-        'classes': label_encoder.classes_.tolist(),
-        'accuracy': float(accuracy),
-        'input_dim': input_dim,
-        'num_classes': num_classes,
+        'classes': le.classes_.tolist(),
+        'accuracy': float(acc),
+        'input_dim': INPUT_SIZE,
+        'num_classes': len(le.classes_),
         'window_size': WINDOW_SIZE,
-        'window_step': WINDOW_STEP
+        'window_step': WINDOW_STEP,
+        'features_per_channel': FEATURES_PER_CHANNEL
     }
-    with open('scaler_params_balanced.json', 'w') as f:
-        json.dump(scaler_params, f, indent=2)
+    with open('scaler_params.json', 'w') as f:
+        json.dump(params, f, indent=2)
     
-    # Plot training history
-    plot_training_history(history, 'training_history_balanced.png')
-    
-    print("\n" + "="*60)
-    print("TRAINING COMPLETE!")
-    print("="*60)
-    print("\nGenerated files:")
-    print("  - src/src_cube/ann_balanced/weights.h")
-    print("  - src/src_cube/ann_balanced/weights.c")
-    print("  - emg_ann_model_balanced.keras")
-    print("  - scaler_params_balanced.json")
-    print(f"\nFinal test accuracy: {accuracy:.4f} ({accuracy*100:.1f}%)")
+    print("\nFiles generated:")
+    print("  - src/src_cube/ann/weights.h")
+    print("  - src/src_cube/ann/weights.c")
+    print("  - emg_ann_model.keras")
+    print("  - scaler_params.json")
 
 if __name__ == "__main__":
     main()

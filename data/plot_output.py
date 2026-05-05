@@ -48,9 +48,9 @@ sns.heatmap(cm_normalized, annot=True, fmt='.1f', cmap='Blues',
             xticklabels=class_names, yticklabels=class_names,
             ax=ax, cbar_kws={'label': 'Percentage (%)'})
 
-ax.set_xlabel('Predicted Gesture', fontsize=12)
-ax.set_ylabel('True Gesture', fontsize=12)
-ax.set_title('Confusion Matrix - EMG Gesture Classification\n(Percentages, 79.3% Overall Accuracy)', fontsize=14, fontweight='bold')
+ax.set_xlabel('Predicted Gesture', fontsize=16)
+ax.set_ylabel('True Gesture', fontsize=16)
+ax.set_title('Confusion Matrix - EMG Gesture Classification\n(Percentages, 79.3% Overall Accuracy)', fontsize=18, fontweight='bold')
 
 plt.xticks(rotation=45, ha='right')
 plt.yticks(rotation=0)
@@ -73,12 +73,12 @@ bars = ax.bar(classes, accuracies, color=colors, edgecolor='black', linewidth=0.
 
 for bar, acc in zip(bars, accuracies):
     ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 1, 
-            f'{acc:.1f}%', ha='center', va='bottom', fontsize=10, fontweight='bold')
+            f'{acc:.1f}%', ha='center', va='bottom', fontsize=13, fontweight='bold')
 
 ax.axhline(y=79.3, color='red', linestyle='--', linewidth=2, label=f'Overall Accuracy: 79.3%')
-ax.set_xlabel('Gesture', fontsize=12)
-ax.set_ylabel('Accuracy (%)', fontsize=12)
-ax.set_title('Per-Class Accuracy', fontsize=14, fontweight='bold')
+ax.set_xlabel('Gesture', fontsize=16)
+ax.set_ylabel('Accuracy (%)', fontsize=16)
+ax.set_title('Per-Class Accuracy', fontsize=18, fontweight='bold')
 ax.set_ylim(0, 105)
 ax.legend(loc='upper right')
 ax.grid(True, alpha=0.3, axis='y')
@@ -125,9 +125,9 @@ bars1 = ax.bar(x - width, precision, width, label='Precision', color='#3498db', 
 bars2 = ax.bar(x, recall, width, label='Recall', color='#2ecc71', edgecolor='black')
 bars3 = ax.bar(x + width, f1, width, label='F1-Score', color='#e74c3c', edgecolor='black')
 
-ax.set_xlabel('Gesture', fontsize=12)
-ax.set_ylabel('Score (%)', fontsize=12)
-ax.set_title('Precision, Recall, and F1-Score by Gesture', fontsize=14, fontweight='bold')
+ax.set_xlabel('Gesture', fontsize=16)
+ax.set_ylabel('Score (%)', fontsize=16)
+ax.set_title('Precision, Recall, and F1-Score by Gesture', fontsize=18, fontweight='bold')
 ax.set_xticks(x)
 ax.set_xticklabels(class_names, rotation=45, ha='right')
 ax.legend(loc='upper right')
@@ -160,8 +160,8 @@ misclass_df = misclass_df.sort_values('Count', ascending=False).head(15)
 bars = ax.barh(range(len(misclass_df)), misclass_df['Count'], color='#e67e22')
 ax.set_yticks(range(len(misclass_df)))
 ax.set_yticklabels([f"{row['True']} → {row['Predicted']}" for _, row in misclass_df.iterrows()])
-ax.set_xlabel('Number of Misclassifications', fontsize=12)
-ax.set_title('Top 15 Most Common Misclassifications', fontsize=14, fontweight='bold')
+ax.set_xlabel('Number of Misclassifications', fontsize=16)
+ax.set_title('Top 15 Most Common Misclassifications', fontsize=18, fontweight='bold')
 ax.invert_yaxis()
 ax.grid(True, alpha=0.3, axis='x')
 

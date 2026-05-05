@@ -8,14 +8,14 @@
 extern "C" {
 #endif
 
-#define EMG_WINDOW_SIZE     50      
-#define EMG_WINDOW_STEP     25      
-#define EMG_BUFFER_SIZE     100     
-#define PREDICTION_HISTORY  5       
-#define STATE_DEBOUNCE_MS   200     
-#define MIN_GESTURE_INTERVAL_MS 3000
-#define ACTIVITY_TIMEOUT_MS 1500    
-#define MIN_CONFIDENCE      0.3f    
+#define EMG_WINDOW_SIZE     250     // 250ms window at ~1000Hz
+#define EMG_WINDOW_STEP     50      // 50ms step 
+#define EMG_BUFFER_SIZE     300     // must be > WINDOW_SIZE
+#define PREDICTION_HISTORY  7      
+#define STATE_DEBOUNCE_MS   150    
+#define MIN_GESTURE_INTERVAL_MS 1500
+#define ACTIVITY_TIMEOUT_MS 500 
+#define MIN_CONFIDENCE      0.4f 
 
 typedef enum {
     STATE_ROCK = 0,
