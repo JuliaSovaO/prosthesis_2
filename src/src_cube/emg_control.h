@@ -8,15 +8,16 @@
 extern "C" {
 #endif
 
-#define EMG_WINDOW_SIZE     250     // 250ms window at ~1000Hz
-#define EMG_WINDOW_STEP     50      // 50ms step 
-#define EMG_BUFFER_SIZE     300     // must be > WINDOW_SIZE
-#define PREDICTION_HISTORY  7      
-#define STATE_DEBOUNCE_MS   150    
+#define EMG_WINDOW_SIZE     250
+#define EMG_WINDOW_STEP     50
+#define EMG_BUFFER_SIZE     300
+#define PREDICTION_HISTORY  7
+#define STATE_DEBOUNCE_MS   150
 #define MIN_GESTURE_INTERVAL_MS 1500
-#define ACTIVITY_TIMEOUT_MS 500 
-#define MIN_CONFIDENCE      0.4f 
+#define ACTIVITY_TIMEOUT_MS 500
+#define MIN_CONFIDENCE      0.4f
 
+// initial 10 classes
 typedef enum {
     STATE_ROCK = 0,
     STATE_SCISSORS = 1,
@@ -31,6 +32,16 @@ typedef enum {
     STATE_IDLE = 9,
     STATE_COUNT = 10
 } ProsthesisState_t;
+
+// 5 physical gestures
+typedef enum {
+    PHYS_ROCK = 0,
+    PHYS_PAPER = 1,
+    PHYS_OKAY = 2,
+    PHYS_REST = 3,
+    PHYS_FUCK = 4,
+    PHYS_COUNT = 5
+} PhysicalGesture_t;
 
 typedef struct {
     uint8_t thumb_angle;
@@ -55,4 +66,4 @@ const char* EMG_GetStateName(ProsthesisState_t state);
 }
 #endif
 
-#endif // EMG_CONTROL_H
+#endif

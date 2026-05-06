@@ -158,8 +158,6 @@ def generate_c_headers(dense_layers, class_names, scaler, output_dir='src/src_cu
     os.makedirs(output_dir, exist_ok=True)
     
     num_layers = len(dense_layers)
-    
-    # Layer sizes: [input_dim, hidden1, hidden2, ..., output]
     layer_sizes = [INPUT_SIZE]
     for w, _ in dense_layers:
         layer_sizes.append(w.shape[1])
@@ -214,6 +212,25 @@ def generate_c_headers(dense_layers, class_names, scaler, output_dir='src/src_cu
     
     print(f"Generated: {output_dir}/weights.h, {output_dir}/weights.c")
 
+def print_confusion_matrix(y_true, y_pred, class_names):
+    """Simple text confusion matrix"""
+    cm = confusion_matrix(y_true, y_pred)
+    
+    print("\nConfusion Matrix (rows=true, cols=predicted):")
+    
+    # Header
+    header = " " * 12
+    for name in class_names:
+        header += f"{name:>10}"
+    print(header)
+    
+    # Rows
+    for i, name in enumerate(class_names):
+        row = f"{name:>12}"
+        for j in range(len(class_names)):
+            row += f"{cm[i][j]:10d}"
+        print(row)
+
 def main():
     print("="*60)
     print("EMG ANN Training - Compatible Architecture")
@@ -223,16 +240,8 @@ def main():
     
     # Load data
     data_paths = [
-        # "data/02051/all_data_processed.csv",
-        # "data/02051/all_data.csv",
-        # "data/02052/all_data_processed.csv",
-        # "data/02052/all_data.csv",
-        "data/05051/all_data_processed.csv",
-        "data/05051/all_data.csv",
-        # "data/02053/all_data_processed.csv",
-        # "data/02053/all_data.csv",
-        # "data/02054/all_data_processed.csv",
-        # "data/02054/all_data.csv",
+        "data/06052-yuliia/all_data_processed.csv",
+        "data/06052-yuliia/all_data.csv",
     ]
     
     data_path = None
@@ -301,7 +310,6 @@ def main():
     model = create_model(INPUT_SIZE, len(le.classes_))
     model.summary()
     
-    # Use a FLOAT learning rate (fixes the ReduceLROnPlateau crash)
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=0.002),
         loss='sparse_categorical_crossentropy',
@@ -338,7 +346,9 @@ def main():
     print("\nClassification Report:")
     print(classification_report(y_test, y_pred, target_names=le.classes_))
     
-    print("Per-class accuracy:")
+    print_confusion_matrix(y_test, y_pred, le.classes_.tolist())
+    
+    print("\nPer-class accuracy (10 classes):")
     for i, name in enumerate(le.classes_):
         mask = y_test == i
         if mask.sum() > 0:

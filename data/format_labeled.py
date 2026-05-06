@@ -4,9 +4,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 import re
 
-# ============================================
 # PART 1: Merge labeled TXT files into CSV
-# ============================================
 
 def is_valid_labeled_line(line):
     """
@@ -94,9 +92,7 @@ def merge_labeled_files(folder_path, output_filename="all_data.csv"):
     
     return output_file
 
-# ============================================
 # PART 2: Load and analyze the merged data
-# ============================================
 
 def load_merged_data(file_path):
     """Load the merged CSV file"""
@@ -139,9 +135,7 @@ def create_long_format(df):
     )
     return df_long
 
-# ============================================
 # PART 3: Plotting functions
-# ============================================
 
 def plot_gesture_signals(df_long, gesture, output_dir="plots"):
     """Plot signal shapes for a specific gesture"""
@@ -158,11 +152,12 @@ def plot_gesture_signals(df_long, gesture, output_dir="plots"):
     for i, (sensor, sensor_name) in enumerate(zip(sensors, sensor_names)):
         sensor_data = sample_df[sample_df['sensor'] == sensor]
         axes[i].plot(sensor_data['t'], sensor_data['value'], 'b-', linewidth=0.8)
-        axes[i].set_ylabel(sensor_name, fontsize=10)
+        axes[i].set_ylabel(sensor_name, fontsize=15)
         axes[i].grid(True, alpha=0.3)
+        axes[i].tick_params(axis='both', labelsize=13)
     
     axes[-1].set_xlabel('Time step')
-    fig.suptitle(f'Signal shapes for gesture: {gesture}', fontsize=14)
+    fig.suptitle(f'Signal shapes for gesture: {gesture}', fontsize=18)
     plt.tight_layout()
     plt.savefig(f"{output_dir}/gesture_{gesture}_signal.png", dpi=150)
     plt.close()
@@ -194,10 +189,11 @@ def plot_sensor_density(df_long, sensor, x_max=None, output_dir="plots"):
     if x_max:
         plt.xlim(0, x_max)
     
-    plt.title(f'Value distributions for different gestures on {sensor.upper()}')
-    plt.xlabel('Sensor value')
-    plt.ylabel('Density')
-    plt.legend(loc='upper right', fontsize=8)
+    plt.title(f'Value distributions for different gestures on {sensor.upper()}', fontsize=18)
+    plt.xlabel('Sensor value', fontsize=15)
+    plt.ylabel('Density', fontsize=15)
+    plt.tick_params(axis='both', labelsize=13)
+    plt.legend(loc='upper right', fontsize=15)
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
     plt.savefig(f"{output_dir}/density_{sensor}.png", dpi=150)
@@ -208,16 +204,14 @@ def plot_sensor_density(df_long, sensor, x_max=None, output_dir="plots"):
 def plot_all_density_plots(df_long, output_dir="plots"):
     """Create density plots for all sensors"""
     sensors = ['s1', 's2', 's3', 's4']
-    x_limits = {'s1': 800, 's2': 800, 's3': 1300, 's4': 1000}
+    x_limits = {'s1': 800, 's2': 800, 's3': 1800, 's4': 1500}
     
     for sensor in sensors:
         plot_sensor_density(df_long, sensor, x_limits.get(sensor), output_dir)
     
     print("All density plots created")
 
-# ============================================
 # PART 4: Main execution
-# ============================================
 
 def main():
     print("="*60)
@@ -226,7 +220,7 @@ def main():
     
     # Step 1: Merge labeled files
     print("\n--- Step 1: Merging labeled files ---")
-    folder_path = "data/26042"
+    folder_path = "data/06051-mykyta"
     
     if not Path(folder_path).exists():
         print(f"Folder not found: {folder_path}")
